@@ -1,4 +1,5 @@
-﻿import { type FixtureKind, type TableShape } from "../types";
+﻿import { useEffect, useRef, useState } from "react";
+import { type FixtureKind, type TableShape } from "../types";
 
 const tableItems: Array<{ shape: TableShape; label: string }> = [
   { shape: "square", label: "Kare Masa" },
@@ -28,14 +29,54 @@ export function FloatingPalette({
   onQuickAddTable,
   onQuickAddFixture
 }: FloatingPaletteProps) {
+  const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
+  const nodeRef = useRef<HTMLDivElement | null>(null);
+  const dragRef = useRef<{ ox: number; oy: number; mx: number; my: number } | null>(null);
+
+  useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!dragRef.current) return;
+      setPos({
+        x: dragRef.current.ox + (e.clientX - dragRef.current.mx),
+        y: dragRef.current.oy + (e.clientY - dragRef.current.my)
+      });
+    };
+    const onUp = () => { dragRef.current = null; };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+  }, []);
+
+  const handleDragStart = (e: React.MouseEvent) => {
+    if (e.button !== 0) return;
+    const node = nodeRef.current;
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const parent = node.offsetParent as HTMLElement | null;
+    const parentRect = parent?.getBoundingClientRect() ?? { left: 0, top: 0 };
+    dragRef.current = { ox: rect.left - parentRect.left, oy: rect.top - parentRect.top, mx: e.clientX, my: e.clientY };
+    setPos({ x: rect.left - parentRect.left, y: rect.top - parentRect.top });
+    e.preventDefault();
+  };
+
+  const posStyle = pos ? { left: pos.x, top: pos.y } : {};
+
   return (
     <div
+      ref={nodeRef}
       className={`palette-float ${enabled ? "" : "is-disabled"} ${expanded ? "is-open" : "is-collapsed"}`}
+      style={posStyle}
       onClick={(event) => event.stopPropagation()}
     >
-      <button className="palette-float__toggle btn btn--tiny btn--soft" onClick={onToggleExpanded}>
-        {expanded ? "Paneli Kapat" : "Masalar"}
-      </button>
+      <div className="palette-float__header">
+        <span className="palette-float__drag-handle" onMouseDown={handleDragStart} title="Taşı" />
+        <button className="palette-float__toggle btn btn--tiny btn--soft" onClick={onToggleExpanded}>
+          {expanded ? "Kapat" : "Masalar"}
+        </button>
+      </div>
 
       {expanded ? (
         <>

@@ -210,13 +210,22 @@ body {
 
 /* ─── Target warning banner ───────────────────────────────── */
 .target-warning {
-  border: 1px solid rgba(251,191,36,.3);
+  border: 1px solid rgba(251,191,36,.45);
   border-radius: var(--r-md);
-  background: rgba(251,191,36,.1);
+  background: rgba(251,191,36,.16);
   color: #fbbf24;
-  font-size: 11px;
-  font-weight: 500;
-  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 7px 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  letter-spacing: .01em;
+}
+.target-warning::before {
+  content: "⚡";
+  font-size: 13px;
+  flex-shrink: 0;
 }
 
 /* ─── Buttons ─────────────────────────────────────────────── */
@@ -728,10 +737,7 @@ body {
   backdrop-filter: blur(8px);
 }
 .table-action-menu__row { display: flex; align-items: center; gap: 5px; }
-.table-action-menu__reserve {
-  width: 36px; min-width: 36px; height: 32px;
-  font-size: 20px; font-weight: 700; line-height: 1;
-}
+.table-action-menu__edit { min-width: 32px; font-size: 14px; }
 .table-action-menu small { display: block; margin-top: 5px; padding: 0 2px; color: var(--text-3); font-size: 11px; }
 
 /* ─── Area menu ───────────────────────────────────────────── */
@@ -752,6 +758,98 @@ body {
   margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border);
   display: grid; grid-template-columns: 1fr auto; gap: 5px; align-items: center;
 }
+/* Override dark-bar input styles — panel sits on white background */
+.area-menu__panel .input {
+  background: var(--surface);
+  border-color: var(--border);
+  color: var(--text);
+}
+.area-menu__panel .input:focus {
+  background: var(--surface);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79,70,229,.12);
+  color: var(--text);
+}
+.area-menu__panel .btn {
+  background: var(--surface-2);
+  border-color: var(--border);
+  color: var(--text);
+  height: 28px;
+}
+.area-menu__panel .btn:hover { background: #edf1f7; color: var(--text); }
+.area-menu__panel .btn.is-active { background: var(--accent-soft); border-color: #c4b5fd; color: var(--accent); }
+.area-menu__panel .btn--accent { background: var(--accent); border-color: var(--accent-2); color: #fff; }
+.area-menu__panel .btn--accent:hover { background: var(--accent-2); }
+
+/* ─── Multi-select highlight ──────────────────────────────── */
+.table-token.is-multi-selected {
+  box-shadow: 0 0 0 3px #f59e0b, 0 4px 16px rgba(245,158,11,.3);
+  outline: none;
+}
+
+/* ─── Rubber-band selection rect ─────────────────────────── */
+.selection-rect {
+  position: absolute; z-index: 20;
+  border: 1.5px dashed var(--accent);
+  border-radius: var(--r-sm);
+  background: rgba(79,70,229,.07);
+  pointer-events: none;
+}
+
+/* ─── Day card: collapse + drag ──────────────────────────── */
+.day-card--collapsed {
+  max-height: none;
+  overflow: visible;
+}
+.day-card__drag-handle {
+  cursor: grab;
+  user-select: none;
+}
+.day-card__drag-handle:active { cursor: grabbing; }
+
+.day-card__collapse-btn {
+  width: 22px; height: 22px; min-width: 22px;
+  border: none; background: transparent;
+  cursor: pointer; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  border-radius: var(--r-sm);
+  transition: background 100ms;
+}
+.day-card__collapse-btn:hover { background: var(--surface-2); }
+
+.day-card__arrow {
+  display: inline-block;
+  width: 0; height: 0;
+}
+.day-card__arrow--down {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 6px solid var(--text-3);
+}
+.day-card__arrow--up {
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 6px solid var(--text-3);
+}
+
+/* ─── Floating palette: drag handle ──────────────────────── */
+.palette-float__header {
+  display: flex; align-items: center; gap: 4px;
+}
+.palette-float__drag-handle {
+  width: 16px; height: 20px; flex-shrink: 0;
+  cursor: grab;
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-3);
+  background-image: radial-gradient(circle, var(--border-2) 1.5px, transparent 1.5px);
+  background-size: 4px 4px;
+  border-radius: 3px;
+  opacity: .6;
+  transition: opacity 100ms;
+}
+.palette-float__drag-handle:hover { opacity: 1; cursor: grab; }
+.palette-float__drag-handle:active { cursor: grabbing; }
+.palette-float__toggle { flex: 1; }
 
 /* ─── Responsive ──────────────────────────────────────────── */
 @media (max-width: 1300px) {

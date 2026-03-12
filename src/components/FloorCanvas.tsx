@@ -46,6 +46,7 @@ interface FloorCanvasProps {
   ) => void;
   onDeleteFixture: (fixtureId: string) => void;
   onInteractionStart: () => void;
+  onMultiSelectChange?: (ids: string[]) => void;
   onCanvasViewportChange?: (viewport: { width: number; height: number }) => void;
   onCanvasViewChange?: (view: {
     width: number;
@@ -95,6 +96,12 @@ type DragState =
       originWidth: number;
       originHeight: number;
       resizeAxis?: "x" | "y" | "xy";
+    }
+  | {
+      type: "multi-move";
+      startX: number;
+      startY: number;
+      origins: Record<string, { x: number; y: number; width: number; height: number }>;
     };
 
 type GuideState = { x: number | null; y: number | null };
@@ -152,6 +159,7 @@ export function FloorCanvas({
   onUpdateMergedGroupLayout,
   onDeleteFixture,
   onInteractionStart,
+  onMultiSelectChange,
   onCanvasViewportChange,
   onCanvasViewChange,
   children
@@ -164,6 +172,18 @@ export function FloorCanvas({
   const [viewportSize, setViewportSize] = useState({ width: 1200, height: 680 });
   const [scrollState, setScrollState] = useState({ left: 0, top: 0 });
   const viewportRef = useRef<HTMLDivElement | null>(null);
+
+  // Multi-select state
+  const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
+  const [selectionBoxActive, setSelectionBoxActive] = useState(false);
+  const [selectionBoxVisual, setSelectionBoxVisual] = useState<{
+    startX: number; startY: number; currentX: number; currentY: number;
+  } | null>(null);
+  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const tablesRef = useRef(tables);
+  tablesRef.current = tables;
+  const zoomRef = useRef(zoom);
+  zoomRef.current = zoom;
 
   const tableMap = useMemo(
     () =>
@@ -299,6 +319,47 @@ export function FloorCanvas({
     });
   }, [onCanvasViewChange, scrollState.left, scrollState.top, stageSize.height, stageSize.width, viewportSize.height, viewportSize.width, zoom]);
 
+  // Rubber-band multi-select effect
+  useEffect(() => {
+    if (!selectionBoxActive) return;
+    const start = selectionStartRef.current;
+    if (!start) return;
+
+    const onMove = (e: PointerEvent) => {
+      const node = viewportRef.current;
+      if (!node) return;
+      const rect = node.getBoundingClientRect();
+      const z = zoomRef.current;
+      const curX = (e.clientX - rect.left + node.scrollLeft) / z;
+      const curY = (e.clientY - rect.top + node.scrollTop) / z;
+      setSelectionBoxVisual({ startX: start.x, startY: start.y, currentX: curX, currentY: curY });
+      const box = {
+        x: Math.min(start.x, curX), y: Math.min(start.y, curY),
+        width: Math.abs(curX - start.x), height: Math.abs(curY - start.y)
+      };
+      if (box.width > 4 || box.height > 4) {
+        const ids = new Set(
+          tablesRef.current
+            .filter((t) => t.x < box.x + box.width && t.x + t.width > box.x && t.y < box.y + box.height && t.y + t.height > box.y)
+            .map((t) => t.id)
+        );
+        setMultiSelectedIds(ids);
+        onMultiSelectChange?.(Array.from(ids));
+      }
+    };
+    const onUp = () => {
+      setSelectionBoxActive(false);
+      setSelectionBoxVisual(null);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    return () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectionBoxActive, onMultiSelectChange]);
+
   const toCanvasPoint = (clientX: number, clientY: number) => {
     const node = viewportRef.current;
     if (!node) return null;
@@ -315,6 +376,21 @@ export function FloorCanvas({
     const onPointerMove = (event: PointerEvent) => {
       const pointer = toCanvasPoint(event.clientX, event.clientY);
       if (!pointer) return;
+
+      // Multi-move: drag all selected tables together
+      if (dragState.type === "multi-move") {
+        const dx = pointer.x - dragState.startX;
+        const dy = pointer.y - dragState.startY;
+        for (const [tableId, origin] of Object.entries(dragState.origins)) {
+          onUpdateTable(tableId, {
+            x: clamp(snap(origin.x + dx), 0, stageSize.width - origin.width),
+            y: clamp(snap(origin.y + dy), 0, stageSize.height - origin.height)
+          });
+        }
+        setGuides({ x: null, y: null });
+        return;
+      }
+
       const dx = pointer.x - dragState.startX;
       const dy = pointer.y - dragState.startY;
       const maxX = Math.max(0, stageSize.width - dragState.originWidth);
@@ -409,7 +485,7 @@ export function FloorCanvas({
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
     };
-  }, [dragState, layoutUnlocked, occupiedFrames, onUpdateFixture, onUpdateMergedGroupLayout, onUpdateTable, renderedGroups, stageSize.height, stageSize.width, zoom]);
+  }, [dragState, layoutUnlocked, occupiedFrames, onUpdateFixture, onUpdateMergedGroupLayout, onUpdateTable, renderedGroups, stageSize.height, stageSize.width, zoom, snap, clamp]);
 
   const setZoomWithFocus = (nextZoom: number, clientX?: number, clientY?: number) => {
     const node = viewportRef.current;
@@ -497,6 +573,19 @@ export function FloorCanvas({
           <div
             className="canvas-shell__stage"
             style={{ width: stageSize.width, height: stageSize.height, transform: `scale(${zoom})` }}
+            onPointerDown={(event) => {
+              // Start rubber-band selection only on direct background click
+              if (event.target !== event.currentTarget) return;
+              if (event.button !== 0) return;
+              const pointer = toCanvasPoint(event.clientX, event.clientY);
+              if (!pointer) return;
+              onClearSelection();
+              setMultiSelectedIds(new Set());
+              onMultiSelectChange?.([]);
+              selectionStartRef.current = { x: pointer.x, y: pointer.y };
+              setSelectionBoxActive(true);
+              event.stopPropagation();
+            }}
           >
             <div className="canvas-shell__grid" />
 
@@ -517,6 +606,18 @@ export function FloorCanvas({
 
             {guides.x !== null ? <div className="canvas-guide canvas-guide--x" style={{ left: guides.x }} /> : null}
             {guides.y !== null ? <div className="canvas-guide canvas-guide--y" style={{ top: guides.y }} /> : null}
+
+            {selectionBoxVisual ? (
+              <div
+                className="selection-rect"
+                style={{
+                  left: Math.min(selectionBoxVisual.startX, selectionBoxVisual.currentX),
+                  top: Math.min(selectionBoxVisual.startY, selectionBoxVisual.currentY),
+                  width: Math.abs(selectionBoxVisual.currentX - selectionBoxVisual.startX),
+                  height: Math.abs(selectionBoxVisual.currentY - selectionBoxVisual.startY)
+                }}
+              />
+            ) : null}
 
             {mergeMode.active ? (
               <div className="merge-banner">
@@ -751,6 +852,7 @@ export function FloorCanvas({
                     highlightedTableId === table.id ||
                       (tableInGroup && highlightedGroupId && highlightedGroupId === parentGroup?.id)
                   )}
+                  multiSelected={multiSelectedIds.has(table.id)}
                   mergeSelectable={mergeMode.active && !tableInGroup}
                   mergeSelected={!tableInGroup && mergeMode.tableIds.includes(table.id)}
                   mergeBase={!tableInGroup && mergeMode.baseTableId === table.id}
@@ -758,6 +860,11 @@ export function FloorCanvas({
                   occupancyLabel={tableBadgeById[table.id] ?? `0/${table.capacity}`}
                   showResizeHandle={layoutUnlocked && !tableInGroup}
                   onSelect={() => {
+                    // Clear multi-select on individual click
+                    if (multiSelectedIds.size > 0) {
+                      setMultiSelectedIds(new Set());
+                      onMultiSelectChange?.([]);
+                    }
                     if (tableInGroup && parentGroup) {
                       if (mergeMode.active) return;
                       onSelectMergedGroup(parentGroup.id);
@@ -771,6 +878,17 @@ export function FloorCanvas({
                           if (event.button !== 0) return;
                           const pointer = toCanvasPoint(event.clientX, event.clientY);
                           if (!pointer) return;
+                          // Multi-move: if this table is in multi-selection
+                          if (multiSelectedIds.has(table.id) && multiSelectedIds.size > 1 && !tableInGroup) {
+                            onInteractionStart();
+                            const origins: Record<string, { x: number; y: number; width: number; height: number }> = {};
+                            for (const id of multiSelectedIds) {
+                              const t = tableMap[id];
+                              if (t) origins[id] = { x: t.x, y: t.y, width: t.width, height: t.height };
+                            }
+                            setDragState({ type: "multi-move", startX: pointer.x, startY: pointer.y, origins });
+                            return;
+                          }
                           if (tableInGroup && parentGroup && parentFrame) {
                             if (mergeMode.active) return;
                             onInteractionStart();
@@ -928,8 +1046,10 @@ function resolveDropPreview(
   };
 }
 
+type SingleObjectDragState = Exclude<DragState, { type: "multi-move" }>;
+
 function buildGuideTargetsForMove(
-  dragState: DragState,
+  dragState: SingleObjectDragState,
   occupied: Frame[],
   renderedGroups: Array<{ group: MergedTableGroup; frame: { x: number; y: number; width: number; height: number } }>
 ): Frame[] {

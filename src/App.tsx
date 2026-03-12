@@ -50,6 +50,20 @@ interface CanvasViewState {
 function App() {
   const { state, actions } = useRestaurantStore();
   const [paletteExpanded, setPaletteExpanded] = useState(false);
+  const [multiSelectedTableIds, setMultiSelectedTableIds] = useState<string[]>([]);
+  const [clipboardTables, setClipboardTables] = useState<Array<{
+    shape: TableShape; x: number; y: number; width: number; height: number; label: string; capacity: number;
+  }>>([]);
+  const [pasteOffset, setPasteOffset] = useState(20);
+  const multiSelectedRef = useRef<string[]>([]);
+  multiSelectedRef.current = multiSelectedTableIds;
+  const clipboardRef = useRef(clipboardTables);
+  clipboardRef.current = clipboardTables;
+  const pasteOffsetRef = useRef(pasteOffset);
+  pasteOffsetRef.current = pasteOffset;
+  const stateRef = useRef(state);
+  stateRef.current = state;
+  const tablesSnapshotRef = useRef<ReturnType<typeof buildEffectiveTables>>([]);
   const [canvasView, setCanvasView] = useState<CanvasViewState>({
     width: DEFAULT_CANVAS_VIEWPORT.width,
     height: DEFAULT_CANVAS_VIEWPORT.height,
@@ -78,6 +92,7 @@ function App() {
   const visibleOverride = state.targetMode === "day" ? dayOverride : null;
   const mergedGroups = visibleOverride?.mergedGroups ?? [];
   const tables = buildEffectiveTables(activeArea, visibleOverride);
+  tablesSnapshotRef.current = tables;
   const fixtures = buildEffectiveFixtures(activeArea, visibleOverride);
   const tableMap = buildTableMap(tables);
   const mergedGroupMap = getMergedGroupMap(visibleOverride);
@@ -296,6 +311,67 @@ function App() {
     state.reservationSearchQuery
   ]);
 
+  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+C copy, Ctrl+V paste
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInput =
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement instanceof HTMLSelectElement;
+      if (isInput) return;
+
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        actions.undo();
+        return;
+      }
+
+      if (e.key === "c") {
+        e.preventDefault();
+        const ids = multiSelectedRef.current.length > 0 ? multiSelectedRef.current : [];
+        if (ids.length === 0) return;
+        const copied = ids
+          .map((id) => tablesSnapshotRef.current.find((t) => t.id === id))
+          .filter(Boolean)
+          .map((t) => ({
+            shape: t!.shape,
+            x: t!.x,
+            y: t!.y,
+            width: t!.width,
+            height: t!.height,
+            label: t!.label,
+            capacity: t!.capacity
+          }));
+        if (copied.length > 0) {
+          setClipboardTables(copied);
+          setPasteOffset(20);
+        }
+        return;
+      }
+
+      if (e.key === "v") {
+        e.preventDefault();
+        const cb = clipboardRef.current;
+        const offset = pasteOffsetRef.current;
+        if (cb.length === 0) return;
+        const areaId = stateRef.current.activeAreaId;
+        if (!areaId) return;
+        actions.cloneTables(
+          areaId,
+          stateRef.current.targetMode,
+          cb.map((item) => ({ ...item, x: item.x + offset, y: item.y + offset }))
+        );
+        setPasteOffset((prev) => prev + 20);
+        return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [actions]);
+
   const handleSelectTable = (tableId: string) => {
     if (state.mergeMode.active) {
       actions.toggleMergeTable(tableId);
@@ -400,8 +476,6 @@ function App() {
 
   const mergeDisabled = state.selectedObject?.kind !== "table" || state.targetMode === "default";
   const splitDisabled = state.selectedObject?.kind !== "group" || state.targetMode === "default";
-  const reserveDisabled =
-    !state.selectedObject || state.mergeMode.active || state.targetMode === "default" || state.selectedObject.kind === "fixture";
   const mergeHelperText =
     state.targetMode === "default"
       ? "Varsayılan planda rezervasyon ve birleştirme kapalı."
@@ -469,6 +543,7 @@ function App() {
             if (!window.confirm("Bu nesneyi silmek istiyor musun?")) return;
             actions.deleteFixture(activeArea.id, fixtureId, state.targetMode);
           }}
+          onMultiSelectChange={(ids) => setMultiSelectedTableIds(ids)}
         >
           <FloatingPalette
             enabled={state.layoutUnlocked}
@@ -496,7 +571,6 @@ function App() {
               mergeLabel={mergeLabel}
               mergeDisabled={mergeDisabled}
               splitDisabled={splitDisabled}
-              reserveDisabled={reserveDisabled}
               helperText={mergeHelperText}
               onMerge={() => {
                 if (state.targetMode === "default") return;
@@ -523,11 +597,7 @@ function App() {
                 }
                 actions.splitMergedGroup(activeArea.id, state.selectedObject.id);
               }}
-              onReserve={() => {
-                if (state.targetMode === "default") return;
-                if (!state.selectedObject || state.mergeMode.active) return;
-                actions.startReservationIntent();
-              }}
+              onEdit={() => actions.startEditingObject()}
             />
           ) : null}
 

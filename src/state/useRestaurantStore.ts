@@ -57,7 +57,13 @@ type Action =
   | { type: "RESET_DAILY_OVERRIDE"; dateISO: string; areaId: string }
   | { type: "RENAME_MERGED_GROUP"; areaId: string; groupId: string; name: string }
   | { type: "START_EDITING_OBJECT" }
-  | { type: "RESTORE_SNAPSHOT"; snapshot: { areas: Area[]; reservations: Reservation[]; overrides: OverridesByDate } };
+  | { type: "RESTORE_SNAPSHOT"; snapshot: { areas: Area[]; reservations: Reservation[]; overrides: OverridesByDate } }
+  | {
+      type: "CLONE_TABLES";
+      areaId: string;
+      targetMode: TargetMode;
+      tables: Array<{ shape: TableShape; x: number; y: number; width: number; height: number; label: string; capacity: number }>;
+    };
 
 const STORAGE_KEY = "rezerve-v1";
 
@@ -672,6 +678,29 @@ function reducer(state: StoreState, action: Action): StoreState {
       );
       return { ...state, overrides };
     }
+    case "CLONE_TABLES": {
+      const newTables = action.tables.map((template) => ({
+        id: uid("table"),
+        label: template.label,
+        shape: template.shape,
+        x: template.x,
+        y: template.y,
+        width: template.width,
+        height: template.height,
+        capacity: template.capacity
+      }));
+      if (action.targetMode === "default") {
+        return {
+          ...state,
+          areas: state.areas.map((area) =>
+            area.id !== action.areaId ? area : { ...area, defaultTables: [...area.defaultTables, ...newTables] }
+          )
+        };
+      }
+      const { override, overrides } = getOrCloneOverride(state, state.activeDateISO, action.areaId);
+      override.addedTables = [...override.addedTables, ...newTables];
+      return { ...state, overrides };
+    }
     case "START_EDITING_OBJECT":
       return { ...state, interactionMode: "editingObject" };
     case "RESTORE_SNAPSHOT":
@@ -721,7 +750,7 @@ export function useRestaurantStore() {
     const undoableActions = new Set([
       "ADD_TABLE", "UPDATE_TABLE", "DELETE_TABLE", "ADD_FIXTURE", "UPDATE_FIXTURE",
       "DELETE_FIXTURE", "APPLY_MERGE_MODE", "SPLIT_MERGED_GROUP", "RESET_DAILY_OVERRIDE",
-      "UPSERT_RESERVATION", "DELETE_RESERVATION"
+      "UPSERT_RESERVATION", "DELETE_RESERVATION", "CLONE_TABLES"
     ]);
     if (undoableActions.has(action.type)) {
       historyRef.current = [
@@ -781,6 +810,11 @@ export function useRestaurantStore() {
         dispatchWithHistory({ type: "RESET_DAILY_OVERRIDE", dateISO, areaId }),
       renameMergedGroup: (areaId: string, groupId: string, name: string) =>
         dispatchWithHistory({ type: "RENAME_MERGED_GROUP", areaId, groupId, name }),
+      cloneTables: (
+        areaId: string,
+        targetMode: TargetMode,
+        tables: Array<{ shape: TableShape; x: number; y: number; width: number; height: number; label: string; capacity: number }>
+      ) => dispatchWithHistory({ type: "CLONE_TABLES", areaId, targetMode, tables }),
       undo: () => {
         const snapshot = historyRef.current.pop();
         if (snapshot) dispatch({ type: "RESTORE_SNAPSHOT", snapshot });

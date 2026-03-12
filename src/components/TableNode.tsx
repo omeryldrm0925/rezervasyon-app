@@ -6,6 +6,7 @@ interface TableNodeProps {
   visualState: TableVisualState;
   selected: boolean;
   highlighted: boolean;
+  multiSelected?: boolean;
   mergeSelectable: boolean;
   mergeSelected: boolean;
   mergeBase: boolean;
@@ -22,6 +23,7 @@ export function TableNode({
   visualState,
   selected,
   highlighted,
+  multiSelected,
   mergeSelectable,
   mergeSelected,
   mergeBase,
@@ -55,6 +57,7 @@ export function TableNode({
         isTiny ? "is-tiny" : "",
         selected ? "is-selected" : "",
         highlighted ? "is-highlighted" : "",
+        multiSelected ? "is-multi-selected" : "",
         mergeSelectable ? "is-merge-selectable" : "",
         mergeSelected ? "is-merge-selected" : "",
         mergeBase ? "is-merge-base" : ""
