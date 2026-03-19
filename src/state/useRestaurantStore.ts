@@ -3,6 +3,14 @@ import { mockAreas, mockOverrides, mockReservations } from "../data/mockData";
 import { buildEffectiveTables, buildTableMap, getAreaById, getMergedGroupFrame, getOverride } from "../utils/layout";
 import { toISODate } from "../utils/date";
 import {
+  deleteOverrideFromDb,
+  deleteReservationFromDb,
+  loadAllFromSupabase,
+  syncAreas,
+  syncOverrides,
+  syncReservations
+} from "../lib/api";
+import {
   type Area,
   type Fixture,
   type FixtureKind,
@@ -742,9 +750,43 @@ export function useRestaurantStore() {
   stateRef.current = state;
 
   const { areas, reservations, overrides } = state;
+
+  // localStorage yedek (senkron, her değişimde)
   useEffect(() => {
     savePersisted(areas, reservations, overrides);
   }, [areas, reservations, overrides]);
+
+  // Supabase'den yükleme devam ederken sync'i engelle
+  const isLoadingFromSupabaseRef = useRef(false);
+
+  // Supabase sync (debounced — sürükleme sırasında çok sık yazmamak için 1 sn bekler)
+  const supabaseSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    // İlk yükleme sırasında Supabase'e yazma — sonsuz döngü önlemi
+    if (isLoadingFromSupabaseRef.current) return;
+    if (supabaseSyncTimerRef.current) clearTimeout(supabaseSyncTimerRef.current);
+    supabaseSyncTimerRef.current = setTimeout(() => {
+      syncAreas(areas).catch(console.error);
+      syncReservations(reservations).catch(console.error);
+      syncOverrides(overrides).catch(console.error);
+    }, 1000);
+  }, [areas, reservations, overrides]);
+
+  // Supabase'den ilk yükleme (uygulama açılışında bir kez çalışır)
+  useEffect(() => {
+    isLoadingFromSupabaseRef.current = true;
+    loadAllFromSupabase()
+      .then((data) => {
+        // Supabase'de veri varsa state'i güncelle; yoksa localStorage verisini koru
+        if (data.areas.length > 0 || data.reservations.length > 0) {
+          dispatch({ type: "RESTORE_SNAPSHOT", snapshot: data });
+        }
+      })
+      .catch(console.error)
+      .finally(() => {
+        isLoadingFromSupabaseRef.current = false;
+      });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dispatchWithHistory = useCallback((action: Action) => {
     const undoableActions = new Set([
@@ -791,7 +833,10 @@ export function useRestaurantStore() {
         dispatchWithHistory({ type: "DELETE_FIXTURE", areaId, fixtureId, targetMode }),
       upsertReservation: (reservation: Omit<Reservation, "id"> & { id?: string }) =>
         dispatchWithHistory({ type: "UPSERT_RESERVATION", reservation }),
-      deleteReservation: (reservationId: string) => dispatchWithHistory({ type: "DELETE_RESERVATION", reservationId }),
+      deleteReservation: (reservationId: string) => {
+        dispatchWithHistory({ type: "DELETE_RESERVATION", reservationId });
+        deleteReservationFromDb(reservationId).catch(console.error);
+      },
       setReservationStatus: (reservationId: string, status: Reservation["status"]) =>
         dispatchWithHistory({ type: "SET_RESERVATION_STATUS", reservationId, status }),
       highlightReservation: (reservationId: string | null, tableId: string | null) =>
@@ -806,8 +851,10 @@ export function useRestaurantStore() {
         patch: Partial<Pick<MergedTableGroup, "x" | "y" | "width" | "height">>
       ) => dispatchWithHistory({ type: "UPDATE_MERGED_GROUP_LAYOUT", areaId, groupId, patch }),
       splitMergedGroup: (areaId: string, groupId: string) => dispatchWithHistory({ type: "SPLIT_MERGED_GROUP", areaId, groupId }),
-      resetDailyOverride: (dateISO: string, areaId: string) =>
-        dispatchWithHistory({ type: "RESET_DAILY_OVERRIDE", dateISO, areaId }),
+      resetDailyOverride: (dateISO: string, areaId: string) => {
+        dispatchWithHistory({ type: "RESET_DAILY_OVERRIDE", dateISO, areaId });
+        deleteOverrideFromDb(areaId, dateISO).catch(console.error);
+      },
       renameMergedGroup: (areaId: string, groupId: string, name: string) =>
         dispatchWithHistory({ type: "RENAME_MERGED_GROUP", areaId, groupId, name }),
       cloneTables: (
