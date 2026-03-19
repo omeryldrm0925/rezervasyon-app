@@ -31,8 +31,14 @@ export function getOverride(
 export function buildEffectiveTables(area: Area | null, override: LayoutOverride | null): EffectiveTable[] {
   if (!area) return [];
 
+  // Override varsa: override oluşturulduğundaki snapshot'ı kullan.
+  // Bu sayede varsayılan plandaki sonraki değişiklikler (yeni masa ekleme,
+  // silme, taşıma) bu günü ETKİLEMEZ — tam izolasyon sağlanır.
+  // Override yoksa (null) veya eski kayıtta snapshot yoksa area.defaultTables kullanılır.
+  const base = override?.baseTableSnapshot ?? area.defaultTables;
+
   const removed = new Set(override?.removedTableIds ?? []);
-  const baseTables = area.defaultTables
+  const baseTables = base
     .filter((table) => !removed.has(table.id))
     .map((table) => applyTablePatch(table, override?.tablePatches[table.id], false));
   const added = (override?.addedTables ?? []).map((table) =>
@@ -48,8 +54,12 @@ export function buildEffectiveFixtures(
 ): EffectiveFixture[] {
   if (!area) return [];
 
+  // Override varsa snapshot kullan — varsayılan plandaki fixture değişiklikleri
+  // override'lı günleri etkilemez.
+  const base = override?.baseFixtureSnapshot ?? area.defaultFixtures;
+
   const removed = new Set(override?.removedFixtureIds ?? []);
-  const baseFixtures = area.defaultFixtures
+  const baseFixtures = base
     .filter((fixture) => !removed.has(fixture.id))
     .map((fixture) => applyFixturePatch(fixture, override?.fixturePatches[fixture.id], false));
   const added = (override?.addedFixtures ?? []).map((fixture) =>

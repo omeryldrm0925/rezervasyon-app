@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "r
 import { buildEffectiveTables, buildTableMap, getAreaById, getMergedGroupFrame, getOverride } from "../utils/layout";
 import { toISODate } from "../utils/date";
 import {
+  deleteAreaFromDb,
   deleteOverrideFromDb,
   deleteReservationFromDb,
   loadAllFromSupabase,
@@ -61,6 +62,7 @@ type Action =
       patch: Partial<Pick<MergedTableGroup, "x" | "y" | "width" | "height">>;
     }
   | { type: "SPLIT_MERGED_GROUP"; areaId: string; groupId: string }
+  | { type: "DELETE_AREA"; areaId: string }
   | { type: "RESET_DAILY_OVERRIDE"; dateISO: string; areaId: string }
   | { type: "RENAME_MERGED_GROUP"; areaId: string; groupId: string; name: string }
   | { type: "START_EDITING_OBJECT" }
@@ -106,10 +108,19 @@ function buildDefaultFixture(kind: FixtureKind, x: number, y: number): Fixture {
   return { id: uid("fixture"), kind, x, y, width: 98, height: 14, rotation: 0, label: "Pencere" };
 }
 
-function buildEmptyOverride(dateISO: string, areaId: string): LayoutOverride {
+function buildEmptyOverride(
+  dateISO: string,
+  areaId: string,
+  baseTableSnapshot: Table[],
+  baseFixtureSnapshot: Fixture[]
+): LayoutOverride {
   return {
     dateISO,
     areaId,
+    // Override oluşturulduğu andaki masa ve fixture snapshot'ları.
+    // Bunlar sayesinde varsayılan plandaki sonraki değişiklikler bu günü etkilemez.
+    baseTableSnapshot: baseTableSnapshot.map((t) => ({ ...t })),
+    baseFixtureSnapshot: baseFixtureSnapshot.map((f) => ({ ...f })),
     tablePatches: {},
     addedTables: [],
     removedTableIds: [],
@@ -158,7 +169,20 @@ function getOrCloneOverride(
 ): { override: LayoutOverride; overrides: StoreState["overrides"] } {
   const dateBucket = { ...(state.overrides[dateISO] ?? {}) };
   const current = dateBucket[areaId];
-  const override = current ? cloneOverride(current) : buildEmptyOverride(dateISO, areaId);
+  let override: LayoutOverride;
+  if (current) {
+    override = cloneOverride(current);
+  } else {
+    // Yeni override oluşturulurken varsayılan planın o anki snapshot'ını kapat.
+    // Bu sayede varsayılan plan ilerleyen günlerde değişse bile bu override etkilenmez.
+    const area = getAreaById(state.areas, areaId);
+    override = buildEmptyOverride(
+      dateISO,
+      areaId,
+      area?.defaultTables ?? [],
+      area?.defaultFixtures ?? []
+    );
+  }
   dateBucket[areaId] = override;
   return { override, overrides: { ...state.overrides, [dateISO]: dateBucket } };
 }
@@ -303,6 +327,36 @@ function reducer(state: StoreState, action: Action): StoreState {
       if (!cleaned) return state;
       return { ...state, areas: state.areas.map((area) => (area.id === action.areaId ? { ...area, name: cleaned } : area)) };
     }
+    case "DELETE_AREA": {
+      if (state.areas.length <= 1) return state; // son alanı silme
+      const newAreas = state.areas.filter((a) => a.id !== action.areaId);
+      const newActiveAreaId =
+        state.activeAreaId === action.areaId ? (newAreas[0]?.id ?? null) : state.activeAreaId;
+
+      // Bu alana ait override'ları temizle
+      const newOverrides = Object.entries(state.overrides).reduce<OverridesByDate>(
+        (acc, [dateISO, bucket]) => {
+          const { [action.areaId]: _removed, ...rest } = bucket;
+          if (Object.keys(rest).length > 0) acc[dateISO] = rest;
+          return acc;
+        },
+        {}
+      );
+
+      // Bu alana ait rezervasyonları temizle
+      const newReservations = state.reservations.filter((r) => r.areaId !== action.areaId);
+
+      return {
+        ...state,
+        areas: newAreas,
+        activeAreaId: newActiveAreaId,
+        overrides: newOverrides,
+        reservations: newReservations,
+        selectedObject: null,
+        mergeMode: emptyMergeMode(),
+        interactionMode: "idle"
+      };
+    }
     case "ADD_TABLE": {
       const table = buildDefaultTable(action.shape, action.x, action.y);
       const selectedObject = { kind: "table", id: table.id } as const;
@@ -355,7 +409,9 @@ function reducer(state: StoreState, action: Action): StoreState {
           if (scoped) {
             const cloned = cloneOverride(scoped);
             delete cloned.tablePatches[action.tableId];
-            cloned.removedTableIds = cloned.removedTableIds.filter((id) => id !== action.tableId);
+            // removedTableIds temizlenmez: snapshot izolasyonu aktifse, silinen
+            // varsayılan masa snapshot'ta yaşamaya devam eder ve kullanıcının
+            // günlük planda o masayı gizleme kararı bozulmamalıdır.
             cloned.addedTables = cloned.addedTables.filter((table) => table.id !== action.tableId);
             cloned.mergedGroups = removeTableFromGroups(cloned, action.tableId);
             nextBucket[action.areaId] = cloned;
@@ -683,13 +739,18 @@ function reducer(state: StoreState, action: Action): StoreState {
     }
     case "START_EDITING_OBJECT":
       return { ...state, interactionMode: "editingObject" };
-    case "RESTORE_SNAPSHOT":
+    case "RESTORE_SNAPSHOT": {
+      const newAreas = action.snapshot.areas;
+      // activeAreaId güncelle: mevcut seçim hâlâ geçerliyse koru, yoksa ilk alana geç
+      const currentValid = state.activeAreaId && newAreas.some((a) => a.id === state.activeAreaId);
       return {
         ...state,
-        areas: action.snapshot.areas,
+        areas: newAreas,
         reservations: action.snapshot.reservations,
-        overrides: action.snapshot.overrides
+        overrides: action.snapshot.overrides,
+        activeAreaId: currentValid ? state.activeAreaId : (newAreas[0]?.id ?? null)
       };
+    }
     case "RESET_DAILY_OVERRIDE": {
       const dateBucket = state.overrides[action.dateISO];
       if (!dateBucket || !dateBucket[action.areaId]) return state;
@@ -745,21 +806,33 @@ export function useRestaurantStore() {
   }, [areas, reservations, overrides]);
 
   // Supabase'den ilk yükleme (uygulama açılışında bir kez çalışır)
+  // React StrictMode'da effect iki kez çalışabilir; `cancelled` flag'i stale
+  // async sonuçların state'e yazılmasını engeller.
   useEffect(() => {
+    let cancelled = false;
+
     loadAllFromSupabase()
       .then((data) => {
-        // Her zaman Supabase verisini kullan
+        if (cancelled) return;
+        // dispatch ve setIsInitializing aynı callback'te → React bunları tek render'da batch'ler
         dispatch({ type: "RESTORE_SNAPSHOT", snapshot: data });
-        // Yeni kullanıcı: hiç salon yoksa varsayılan "Ana Salon" oluştur
         if (data.areas.length === 0) {
           dispatch({ type: "ADD_AREA", name: "Ana Salon" });
         }
+        isLoadingFromSupabaseRef.current = false;
+        setIsInitializing(false);
       })
-      .catch(console.error)
-      .finally(() => {
+      .catch((err) => {
+        if (cancelled) return;
+        console.error(err);
         isLoadingFromSupabaseRef.current = false;
         setIsInitializing(false);
       });
+
+    return () => {
+      // StrictMode unmount veya dep değişimi → devam eden async'i iptal et
+      cancelled = true;
+    };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const dispatchWithHistory = useCallback((action: Action) => {
@@ -793,6 +866,10 @@ export function useRestaurantStore() {
       startEditingObject: () => dispatchWithHistory({ type: "START_EDITING_OBJECT" }),
       addArea: (name: string) => dispatchWithHistory({ type: "ADD_AREA", name }),
       renameArea: (areaId: string, name: string) => dispatchWithHistory({ type: "RENAME_AREA", areaId, name }),
+      deleteArea: (areaId: string) => {
+        dispatchWithHistory({ type: "DELETE_AREA", areaId });
+        deleteAreaFromDb(areaId).catch(console.error);
+      },
       addTable: (areaId: string, targetMode: TargetMode, shape: TableShape, x: number, y: number) =>
         dispatchWithHistory({ type: "ADD_TABLE", areaId, targetMode, shape, x, y }),
       updateTable: (areaId: string, tableId: string, targetMode: TargetMode, patch: TablePatch) =>

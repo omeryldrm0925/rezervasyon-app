@@ -62,6 +62,14 @@ export type FixturePatch = Partial<
 export interface LayoutOverride {
   dateISO: string;
   areaId: string;
+  /**
+   * Override oluşturulduğu andaki area.defaultTables snapshot'ı.
+   * Varsa, buildEffectiveTables bu snapshot'ı kullanır — varsayılan
+   * plandaki sonraki değişiklikler override'lı günleri etkilemez.
+   * Eski override kayıtlarında undefined olabilir (backwards compat).
+   */
+  baseTableSnapshot?: Table[];
+  baseFixtureSnapshot?: Fixture[];
   tablePatches: Record<string, TablePatch>;
   addedTables: Table[];
   removedTableIds: string[];

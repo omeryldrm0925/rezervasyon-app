@@ -1,16 +1,19 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { DayReservationsCard } from "./components/DayReservationsCard";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
+import { AreaTabs } from "./components/AreaTabs";
 import { FloorCanvas } from "./components/FloorCanvas";
 import { FloatingPalette } from "./components/FloatingPalette";
 import { GroupEditorCard } from "./components/GroupEditorCard";
 import { ObjectEditorCard } from "./components/ObjectEditorCard";
 import { ReservationCard, type ReservationDraft } from "./components/ReservationCard";
+import { ReservationSidebar, type ReservationFormData } from "./components/ReservationSidebar";
 import { TableActionMenu } from "./components/TableActionMenu";
 import { TopBar } from "./components/TopBar";
 import { useRestaurantStore } from "./state/useRestaurantStore";
 import { useAuth } from "./hooks/useAuth";
 import { LoginPage } from "./features/auth/LoginPage";
 import { RegisterPage } from "./features/auth/RegisterPage";
+import { LandingPage } from "./features/landing/LandingPage";
 import {
   buildEffectiveFixtures,
   buildEffectiveTables,
@@ -51,8 +54,23 @@ interface CanvasViewState {
 }
 
 export default function App() {
-  const { user, restaurantId, loading, signIn, signOut, signUp } = useAuth();
-  const [authPage, setAuthPage] = useState<"login" | "register">("login");
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<LandingPage />} />
+        <Route path="/login" element={<AuthRoute page="login" />} />
+        <Route path="/register" element={<AuthRoute page="register" />} />
+        <Route path="/app" element={<ProtectedRoute />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
+  );
+}
+
+/** Giriş yapmış kullanıcıyı /app'e, yapmamışı login/register'a yönlendirir */
+function AuthRoute({ page }: { page: "login" | "register" }) {
+  const { user, restaurantId, loading, signIn, signUp } = useAuth();
+  const navigate = useNavigate();
 
   if (loading) {
     return (
@@ -62,24 +80,45 @@ export default function App() {
     );
   }
 
-  if (!user || !restaurantId) {
-    if (authPage === "register") {
-      return (
-        <RegisterPage
-          onRegister={signUp}
-          onGoToLogin={() => setAuthPage("login")}
-        />
-      );
-    }
+  if (user && restaurantId) return <Navigate to="/app" replace />;
+
+  if (page === "register") {
     return (
-      <LoginPage
-        onLogin={signIn}
-        onGoToRegister={() => setAuthPage("register")}
+      <RegisterPage
+        onRegister={async (email, password, restaurantName) => {
+          await signUp(email, password, restaurantName);
+        }}
+        onGoToLogin={() => navigate("/login")}
       />
     );
   }
 
-  return <RestaurantApp key={restaurantId} onSignOut={signOut} />;
+  return (
+    <LoginPage
+      onLogin={async (email, password) => {
+        await signIn(email, password);
+        navigate("/app");
+      }}
+      onGoToRegister={() => navigate("/register")}
+    />
+  );
+}
+
+/** Giriş yapmamış kullanıcıyı /login'e yönlendirir */
+function ProtectedRoute() {
+  const { user, restaurantId, loading, signOut } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-400 text-sm">Yükleniyor...</div>
+      </div>
+    );
+  }
+
+  if (!user || !restaurantId) return <Navigate to="/login" replace />;
+
+  return <RestaurantApp key={restaurantId} onSignOut={async () => { await signOut(); }} />;
 }
 
 function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
@@ -433,6 +472,9 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
       };
 
   const dateHasOverride = Boolean(state.overrides[state.activeDateISO]?.[activeArea.id]);
+  const overrideCountForArea = Object.values(state.overrides).filter(
+    (bucket) => bucket[activeArea.id]
+  ).length;
 
   const handleSelectTable = (tableId: string) => {
     if (state.mergeMode.active) {
@@ -549,16 +591,64 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
           ? `${selectedGroup.tableIds.length} masa grup halinde hareket eder.`
           : undefined;
 
+  // ── Sidebar save handler ───────────────────────────────────────────────────
+  const handleSidebarSave = (data: ReservationFormData, reservationId?: string) => {
+    if (!activeArea) return;
+    const tableIds =
+      data.ownerType === "group"
+        ? mergedGroupsById[data.ownerId]?.tableIds ?? []
+        : [data.ownerId];
+
+    const conflicting = reservations.find(
+      (r) =>
+        r.id !== reservationId &&
+        r.status !== "cancelled" &&
+        r.status !== "no_show" &&
+        r.tableIds.some((tid) => tableIds.includes(tid))
+    );
+    if (conflicting) {
+      const proceed = window.confirm(
+        `Bu masa(lar)da zaten aktif rezervasyon var (${conflicting.guestName}, ${conflicting.time}). Yine de kaydetmek istiyor musun?`
+      );
+      if (!proceed) return;
+    }
+
+    actions.upsertReservation({
+      id: reservationId,
+      dateISO: state.activeDateISO,
+      areaId: activeArea.id,
+      ownerType: data.ownerType,
+      ownerId: data.ownerId,
+      tableIds,
+      guestName: data.guestName,
+      phone: data.phone,
+      guestCount: data.guestCount,
+      time: data.time,
+      notes: data.notes,
+      status: data.status,
+    });
+  };
+
+  // ── Summary bar stats ──────────────────────────────────────────────────────
+  const activeForDay = reservationsAllAreas.filter(
+    (r) => r.status !== "cancelled" && r.status !== "no_show"
+  );
+  const summaryGuestCount = activeForDay.reduce((sum, r) => sum + r.guestCount, 0);
+  const summaryDateLabel = (() => {
+    const [y, m, d] = state.activeDateISO.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    const today = new Date();
+    if (
+      date.getFullYear() === today.getFullYear() &&
+      date.getMonth() === today.getMonth() &&
+      date.getDate() === today.getDate()
+    )
+      return "Bugün";
+    return date.toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
+  })();
+
   return (
     <div className="app-shell">
-      <button
-        onClick={onSignOut}
-        title="Çıkış Yap"
-        style={{ position: "fixed", bottom: 16, right: 16, zIndex: 9999 }}
-        className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 transition-colors"
-      >
-        Çıkış Yap
-      </button>
       <TopBar
         selectedDateISO={state.activeDateISO}
         onDateChange={actions.setDate}
@@ -566,151 +656,245 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
         hasOverride={(dateISO) => Boolean(state.overrides[dateISO]?.[activeArea.id])}
         dateHasOverride={dateHasOverride}
         onResetDay={() => actions.resetDailyOverride(state.activeDateISO, activeArea.id)}
+        targetMode={state.targetMode}
+        onTargetModeChange={actions.setTargetMode}
+        layoutUnlocked={state.layoutUnlocked}
+        onLayoutUnlockedChange={actions.setLayoutUnlocked}
+        overrideCountForArea={overrideCountForArea}
+      />
+
+      <AreaTabs
         areas={state.areas}
         activeAreaId={activeArea.id}
         onSelectArea={actions.setArea}
         onAddArea={actions.addArea}
         onRenameArea={actions.renameArea}
-        targetMode={state.targetMode}
-        onTargetModeChange={actions.setTargetMode}
-        layoutUnlocked={state.layoutUnlocked}
-        onLayoutUnlockedChange={actions.setLayoutUnlocked}
+        onDeleteArea={actions.deleteArea}
       />
 
-      <main className="workspace">
-        <FloorCanvas
+      {/* ── Content row: canvas + sidebar ── */}
+      <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+
+        {/* Canvas column */}
+        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
+
+          {/* Summary bar */}
+          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 bg-white border-b border-gray-200 text-xs text-gray-500">
+            <span className="font-semibold text-gray-700">{summaryDateLabel}</span>
+            <span className="text-gray-300">·</span>
+            <span>{activeForDay.length} rezervasyon</span>
+            {summaryGuestCount > 0 && (
+              <>
+                <span className="text-gray-300">·</span>
+                <span>{summaryGuestCount} misafir</span>
+              </>
+            )}
+          </div>
+
+          {/* Mode info bar */}
+          {state.targetMode === "default" ? (
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="flex-1">Şablon düzenliyorsunuz — bu değişiklikler tüm günleri etkiler.</span>
+              <button
+                className="flex-shrink-0 px-2.5 py-1 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium transition-colors text-xs"
+                onClick={() => actions.setTargetMode("day")}
+              >
+                Günlük Plana Dön
+              </button>
+            </div>
+          ) : dateHasOverride ? (
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-200 text-indigo-800 text-xs">
+              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              <span className="flex-1">{summaryDateLabel} için özel düzenleme aktif.</span>
+              <button
+                className="flex-shrink-0 px-2.5 py-1 rounded-md bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-medium transition-colors text-xs"
+                onClick={() => {
+                  if (!window.confirm("Bu güne özel düzenlemeyi sıfırlamak istediğine emin misin? Gün, varsayılan plana dönecek.")) return;
+                  actions.resetDailyOverride(state.activeDateISO, activeArea.id);
+                }}
+              >
+                Özel Düzenlemeyi Sıfırla
+              </button>
+            </div>
+          ) : null}
+
+          {/* Canvas */}
+          <main className="workspace" data-mode={state.targetMode} style={{ flex: 1, minHeight: 0 }}>
+            <FloorCanvas
+              tables={tables}
+              fixtures={fixtures}
+              mergedGroups={mergedGroups}
+              selectedObject={state.selectedObject}
+              highlightedTableId={state.highlightedTableId}
+              warningByTable={warningByTable}
+              warningByGroup={warningByGroup}
+              tableBadgeById={occupancy.tableById}
+              groupBadgeById={occupancy.groupById}
+              visualStates={visualStates}
+              groupVisualStates={groupVisualStates}
+              mergeMode={state.mergeMode}
+              layoutUnlocked={state.layoutUnlocked}
+              onSelectTable={handleSelectTable}
+              onSelectMergedGroup={actions.selectMergedGroup}
+              onSelectFixture={actions.selectFixture}
+              onInteractionStart={actions.cancelReservationIntent}
+              onCanvasViewportChange={handleCanvasViewportChange}
+              onCanvasViewChange={setCanvasView}
+              onClearSelection={() => {
+                if (state.mergeMode.active) return;
+                actions.clearSelection();
+              }}
+              onAddTable={(shape, x, y) => actions.addTable(activeArea.id, state.targetMode, shape, x, y)}
+              onAddFixture={(fixtureKind, x, y) => actions.addFixture(activeArea.id, state.targetMode, fixtureKind, x, y)}
+              onUpdateTable={(tableId, patch) => actions.updateTable(activeArea.id, tableId, state.targetMode, patch)}
+              onUpdateFixture={(fixtureId, patch) => actions.updateFixture(activeArea.id, fixtureId, state.targetMode, patch)}
+              onUpdateMergedGroupLayout={(groupId, patch) => actions.updateMergedGroupLayout(activeArea.id, groupId, patch)}
+              onDeleteFixture={(fixtureId) => {
+                if (!window.confirm("Bu nesneyi silmek istiyor musun?")) return;
+                actions.deleteFixture(activeArea.id, fixtureId, state.targetMode);
+              }}
+              onMultiSelectChange={(ids) => setMultiSelectedTableIds(ids)}
+            >
+              {/* Empty canvas onboarding */}
+              {tables.length === 0 && (
+                <div
+                  style={{
+                    position: "absolute",
+                    inset: 0,
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    pointerEvents: "none",
+                    zIndex: 5,
+                  }}
+                >
+                  <div style={{ textAlign: "center" }}>
+                    <svg
+                      style={{ width: 32, height: 32, color: "#d1d5db", margin: "0 auto 10px" }}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
+                    </svg>
+                    <p style={{ fontSize: 13, color: "#9ca3af", fontWeight: 500 }}>
+                      Soldan masa seçip canvas'a sürükleyin
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              <FloatingPalette
+                enabled={state.layoutUnlocked}
+                expanded={paletteExpanded}
+                onToggleExpanded={() => setPaletteExpanded((prev) => !prev)}
+                onQuickAddTable={handleQuickAddTable}
+                onQuickAddFixture={handleQuickAddFixture}
+              />
+
+              {showObjectActions ? (
+                <TableActionMenu
+                  position={floatingLayout.actionPosition}
+                  mergeLabel={mergeLabel}
+                  mergeDisabled={mergeDisabled}
+                  splitDisabled={splitDisabled}
+                  helperText={mergeHelperText}
+                  onMerge={() => {
+                    if (state.targetMode === "default") return;
+                    if (state.selectedObject?.kind !== "table") return;
+                    if (state.mergeMode.active) {
+                      if (state.mergeMode.tableIds.length > 1) {
+                        actions.applyMergeMode(activeArea.id);
+                      } else {
+                        actions.cancelMergeMode();
+                      }
+                      return;
+                    }
+                    actions.startMergeMode(state.selectedObject.id);
+                  }}
+                  onSplit={() => {
+                    if (state.targetMode === "default") return;
+                    if (state.selectedObject?.kind !== "group") return;
+                    const groupReservation = reservationByOwner[`group:${state.selectedObject.id}`];
+                    if (groupReservation) {
+                      const proceed = window.confirm(
+                        "Bu birleşik masada aktif rezervasyon var. Rezervasyon ilk masaya taşınacak. Devam etmek istiyor musun?"
+                      );
+                      if (!proceed) return;
+                    }
+                    actions.splitMergedGroup(activeArea.id, state.selectedObject.id);
+                  }}
+                  onEdit={() => actions.startEditingObject()}
+                />
+              ) : null}
+
+              {showTableEditor && selectedTable ? (
+                <ObjectEditorCard
+                  table={selectedTable}
+                  targetMode={state.targetMode}
+                  position={floatingLayout.editorPosition}
+                  onUpdateTable={(patch) => actions.updateTable(activeArea.id, selectedTable.id, state.targetMode, patch)}
+                  onDeleteTable={() => {
+                    const message = selectedTableHasReservation
+                      ? "Bu masada rezervasyon var. Silmek istediğine emin misin?"
+                      : "Bu masa silinsin mi?";
+                    if (!window.confirm(message)) return;
+                    actions.deleteTable(activeArea.id, selectedTable.id, state.targetMode);
+                  }}
+                />
+              ) : null}
+
+              {showGroupEditor && selectedGroup ? (
+                <GroupEditorCard
+                  group={selectedGroup}
+                  targetMode={state.targetMode}
+                  position={floatingLayout.editorPosition}
+                  onRenameGroup={(name) => actions.renameMergedGroup(activeArea.id, selectedGroup.id, name)}
+                />
+              ) : null}
+
+              {showReservationCard ? (
+                <ReservationCard
+                  objectLabel={reservationLabel}
+                  defaultCapacity={reservationCapacity}
+                  reservation={selectedReservation}
+                  warningText={reservationWarning}
+                  position={floatingLayout.reservationPosition}
+                  onClose={actions.cancelReservationIntent}
+                  onSaveReservation={handleSaveReservation}
+                  onDeleteReservation={(reservationId) => {
+                    actions.deleteReservation(reservationId);
+                    actions.cancelReservationIntent();
+                  }}
+                />
+              ) : null}
+            </FloorCanvas>
+          </main>
+        </div>
+
+        {/* Right Sidebar */}
+        <ReservationSidebar
+          reservations={reservationsAllAreas}
           tables={tables}
-          fixtures={fixtures}
-          mergedGroups={mergedGroups}
-          selectedObject={state.selectedObject}
-          highlightedTableId={state.highlightedTableId}
-          warningByTable={warningByTable}
-          warningByGroup={warningByGroup}
-          tableBadgeById={occupancy.tableById}
-          groupBadgeById={occupancy.groupById}
-          visualStates={visualStates}
-          groupVisualStates={groupVisualStates}
-          mergeMode={state.mergeMode}
-          layoutUnlocked={state.layoutUnlocked}
-          onSelectTable={handleSelectTable}
-          onSelectMergedGroup={actions.selectMergedGroup}
-          onSelectFixture={actions.selectFixture}
-          onInteractionStart={actions.cancelReservationIntent}
-          onCanvasViewportChange={handleCanvasViewportChange}
-          onCanvasViewChange={setCanvasView}
-          onClearSelection={() => {
-            if (state.mergeMode.active) return;
-            actions.clearSelection();
-          }}
-          onAddTable={(shape, x, y) => actions.addTable(activeArea.id, state.targetMode, shape, x, y)}
-          onAddFixture={(fixtureKind, x, y) => actions.addFixture(activeArea.id, state.targetMode, fixtureKind, x, y)}
-          onUpdateTable={(tableId, patch) => actions.updateTable(activeArea.id, tableId, state.targetMode, patch)}
-          onUpdateFixture={(fixtureId, patch) => actions.updateFixture(activeArea.id, fixtureId, state.targetMode, patch)}
-          onUpdateMergedGroupLayout={(groupId, patch) => actions.updateMergedGroupLayout(activeArea.id, groupId, patch)}
-          onDeleteFixture={(fixtureId) => {
-            if (!window.confirm("Bu nesneyi silmek istiyor musun?")) return;
-            actions.deleteFixture(activeArea.id, fixtureId, state.targetMode);
-          }}
-          onMultiSelectChange={(ids) => setMultiSelectedTableIds(ids)}
-        >
-          <FloatingPalette
-            enabled={state.layoutUnlocked}
-            expanded={paletteExpanded}
-            onToggleExpanded={() => setPaletteExpanded((prev) => !prev)}
-            onQuickAddTable={handleQuickAddTable}
-            onQuickAddFixture={handleQuickAddFixture}
-          />
-
-          <DayReservationsCard
-            reservations={reservationsAllAreas}
-            activeAreaId={state.activeAreaId}
-            areaNameById={areaNameById}
-            highlightedReservationId={state.highlightedReservationId}
-            searchQuery={state.reservationSearchQuery}
-            warningByReservation={warningByReservation}
-            onSearchChange={actions.setReservationSearchQuery}
-            onSelectReservation={handleSelectReservation}
-            onCheckInReservation={(reservationId) => actions.setReservationStatus(reservationId, "arrived")}
-          />
-
-          {showObjectActions ? (
-            <TableActionMenu
-              position={floatingLayout.actionPosition}
-              mergeLabel={mergeLabel}
-              mergeDisabled={mergeDisabled}
-              splitDisabled={splitDisabled}
-              helperText={mergeHelperText}
-              onMerge={() => {
-                if (state.targetMode === "default") return;
-                if (state.selectedObject?.kind !== "table") return;
-                if (state.mergeMode.active) {
-                  if (state.mergeMode.tableIds.length > 1) {
-                    actions.applyMergeMode(activeArea.id);
-                  } else {
-                    actions.cancelMergeMode();
-                  }
-                  return;
-                }
-                actions.startMergeMode(state.selectedObject.id);
-              }}
-              onSplit={() => {
-                if (state.targetMode === "default") return;
-                if (state.selectedObject?.kind !== "group") return;
-                const groupReservation = reservationByOwner[`group:${state.selectedObject.id}`];
-                if (groupReservation) {
-                  const proceed = window.confirm(
-                    "Bu birleşik masada aktif rezervasyon var. Rezervasyon ilk masaya taşınacak. Devam etmek istiyor musun?"
-                  );
-                  if (!proceed) return;
-                }
-                actions.splitMergedGroup(activeArea.id, state.selectedObject.id);
-              }}
-              onEdit={() => actions.startEditingObject()}
-            />
-          ) : null}
-
-          {showTableEditor && selectedTable ? (
-            <ObjectEditorCard
-              table={selectedTable}
-              targetMode={state.targetMode}
-              position={floatingLayout.editorPosition}
-              onUpdateTable={(patch) => actions.updateTable(activeArea.id, selectedTable.id, state.targetMode, patch)}
-              onDeleteTable={() => {
-                const message = selectedTableHasReservation
-                  ? "Bu masada rezervasyon var. Silmek istediğine emin misin?"
-                  : "Bu masa silinsin mi?";
-                if (!window.confirm(message)) return;
-                actions.deleteTable(activeArea.id, selectedTable.id, state.targetMode);
-              }}
-            />
-          ) : null}
-
-          {showGroupEditor && selectedGroup ? (
-            <GroupEditorCard
-              group={selectedGroup}
-              targetMode={state.targetMode}
-              position={floatingLayout.editorPosition}
-              onRenameGroup={(name) => actions.renameMergedGroup(activeArea.id, selectedGroup.id, name)}
-            />
-          ) : null}
-
-          {showReservationCard ? (
-            <ReservationCard
-              objectLabel={reservationLabel}
-              defaultCapacity={reservationCapacity}
-              reservation={selectedReservation}
-              warningText={reservationWarning}
-              position={floatingLayout.reservationPosition}
-              onClose={actions.cancelReservationIntent}
-              onSaveReservation={handleSaveReservation}
-              onDeleteReservation={(reservationId) => {
-                actions.deleteReservation(reservationId);
-                actions.cancelReservationIntent();
-              }}
-            />
-          ) : null}
-        </FloorCanvas>
-      </main>
+          mergedGroupMap={mergedGroupMap}
+          mergedGroupsById={mergedGroupsById}
+          activeAreaId={state.activeAreaId}
+          areaNameById={areaNameById}
+          activeDateISO={state.activeDateISO}
+          highlightedReservationId={state.highlightedReservationId}
+          searchQuery={state.reservationSearchQuery}
+          warningByReservation={warningByReservation}
+          onSearchChange={actions.setReservationSearchQuery}
+          onSelectReservation={handleSelectReservation}
+          onSaveReservation={handleSidebarSave}
+          onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
+          onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+          onSignOut={onSignOut}
+        />
+      </div>
     </div>
   );
 }

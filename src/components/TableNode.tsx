@@ -10,6 +10,7 @@ interface TableNodeProps {
   mergeSelectable: boolean;
   mergeSelected: boolean;
   mergeBase: boolean;
+  isAddedByOverride?: boolean;
   warningText?: string;
   occupancyLabel: string;
   showResizeHandle: boolean;
@@ -27,6 +28,7 @@ export function TableNode({
   mergeSelectable,
   mergeSelected,
   mergeBase,
+  isAddedByOverride,
   warningText,
   occupancyLabel,
   showResizeHandle,
@@ -94,6 +96,10 @@ export function TableNode({
         <span className="table-token__alert" title={warningText} aria-label={warningText}>
           !
         </span>
+      ) : null}
+
+      {isAddedByOverride ? (
+        <span className="table-token__override-badge" title="Bu masa bu güne özel eklendi">+</span>
       ) : null}
 
       {showResizeHandle ? (

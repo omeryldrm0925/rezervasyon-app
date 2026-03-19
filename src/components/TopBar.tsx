@@ -1,6 +1,5 @@
-﻿import { AreaMenu } from "./AreaMenu";
-import { DateStrip } from "./DateStrip";
-import { type Area, type TargetMode } from "../types";
+﻿import { DateStrip } from "./DateStrip";
+import { type TargetMode } from "../types";
 
 interface TopBarProps {
   selectedDateISO: string;
@@ -9,15 +8,12 @@ interface TopBarProps {
   hasOverride: (dateISO: string) => boolean;
   dateHasOverride: boolean;
   onResetDay: () => void;
-  areas: Area[];
-  activeAreaId: string | null;
-  onSelectArea: (areaId: string) => void;
-  onAddArea: (name: string) => void;
-  onRenameArea: (areaId: string, name: string) => void;
   targetMode: TargetMode;
   onTargetModeChange: (targetMode: TargetMode) => void;
   layoutUnlocked: boolean;
   onLayoutUnlockedChange: (value: boolean) => void;
+  /** Aktif alan için kaç günde özel düzenleme (override) olduğu */
+  overrideCountForArea: number;
 }
 
 export function TopBar({
@@ -27,15 +23,11 @@ export function TopBar({
   hasOverride,
   dateHasOverride,
   onResetDay,
-  areas,
-  activeAreaId,
-  onSelectArea,
-  onAddArea,
-  onRenameArea,
   targetMode,
   onTargetModeChange,
   layoutUnlocked,
-  onLayoutUnlockedChange
+  onLayoutUnlockedChange,
+  overrideCountForArea
 }: TopBarProps) {
   return (
     <header className="top-bar">
@@ -89,19 +81,15 @@ export function TopBar({
             <span>Yerleşim Araçları</span>
           </label>
 
-          <AreaMenu
-            areas={areas}
-            selectedAreaId={activeAreaId}
-            onSelectArea={onSelectArea}
-            onAddArea={onAddArea}
-            onRenameArea={onRenameArea}
-          />
         </div>
       </div>
 
       {targetMode === "default" ? (
         <div className="target-warning" role="status">
           Varsayılan plan düzenliyorsunuz — Bu alan için tüm günlerin temel düzeni.
+          {overrideCountForArea > 0
+            ? ` ${overrideCountForArea} günde özel düzenleme var; o günler bu değişiklikten etkilenmeyecek.`
+            : null}
         </div>
       ) : null}
     </header>

@@ -47,7 +47,7 @@ export async function loadAllFromSupabase(): Promise<{
   reservations: Reservation[];
   overrides: OverridesByDate;
 }> {
-  if (!configured) return { areas: [], reservations: [], overrides: {} };
+  if (!configured || !currentRestaurantId) return { areas: [], reservations: [], overrides: {} };
 
   const [areasRes, reservationsRes, overridesRes] = await Promise.all([
     supabase
@@ -167,5 +167,16 @@ export async function syncReservations(reservations: Reservation[]): Promise<voi
 export async function deleteReservationFromDb(reservationId: string): Promise<void> {
   if (!configured) return;
   const { error } = await supabase.from("reservations").delete().eq("id", reservationId);
+  if (error) throw error;
+}
+
+/** Belirli bir alanı (area) ve ona ait override + rezervasyonları Supabase'den siler. */
+export async function deleteAreaFromDb(areaId: string): Promise<void> {
+  if (!configured) return;
+  // override'lar ve rezervasyonlar FK cascade ile silinebilir;
+  // eğer cascade yoksa önce onları temizle.
+  await supabase.from("layout_overrides").delete().eq("area_id", areaId);
+  await supabase.from("reservations").delete().eq("area_id", areaId);
+  const { error } = await supabase.from("areas").delete().eq("id", areaId);
   if (error) throw error;
 }

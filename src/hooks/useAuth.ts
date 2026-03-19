@@ -14,26 +14,23 @@ export function useAuth() {
 
   useEffect(() => {
     async function handleUser(user: User) {
-      const restaurant = await getRestaurantForUser(user.id);
-      if (restaurant) {
-        setRestaurantId(restaurant.id);
-        setAuthState({ user, restaurantId: restaurant.id, loading: false });
-      } else {
-        // Kullanıcı var ama restoran yok — kayıt yarım kalmış olabilir
+      try {
+        const restaurant = await getRestaurantForUser(user.id);
+        if (restaurant) {
+          setRestaurantId(restaurant.id);
+          setAuthState({ user, restaurantId: restaurant.id, loading: false });
+        } else {
+          // Kullanıcı var ama restoran yok (kayıt yarım kalmış)
+          setAuthState({ user, restaurantId: null, loading: false });
+        }
+      } catch {
+        // Restoran çekilemedi — auth yüklemeyi yine de bitir
         setAuthState({ user, restaurantId: null, loading: false });
       }
     }
 
-    // Mevcut session'ı kontrol et
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session?.user) {
-        handleUser(session.user);
-      } else {
-        setAuthState({ user: null, restaurantId: null, loading: false });
-      }
-    });
-
-    // Auth değişikliklerini dinle
+    // Sadece onAuthStateChange kullan — Supabase v2'de INITIAL_SESSION event'i
+    // mevcut session'ı otomatik yayınlar, getSession() ayrıca çağırmak race condition yaratır.
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         handleUser(session.user);

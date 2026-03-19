@@ -856,6 +856,7 @@ export function FloorCanvas({
                   mergeSelectable={mergeMode.active && !tableInGroup}
                   mergeSelected={!tableInGroup && mergeMode.tableIds.includes(table.id)}
                   mergeBase={!tableInGroup && mergeMode.baseTableId === table.id}
+                  isAddedByOverride={table.isAddedByOverride}
                   warningText={warningByTable[table.id]}
                   occupancyLabel={tableBadgeById[table.id] ?? `0/${table.capacity}`}
                   showResizeHandle={layoutUnlocked && !tableInGroup}
