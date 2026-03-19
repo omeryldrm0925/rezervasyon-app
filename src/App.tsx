@@ -1,4 +1,4 @@
-﻿import { useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { DayReservationsCard } from "./components/DayReservationsCard";
 import { FloorCanvas } from "./components/FloorCanvas";
 import { FloatingPalette } from "./components/FloatingPalette";
@@ -8,6 +8,9 @@ import { ReservationCard, type ReservationDraft } from "./components/Reservation
 import { TableActionMenu } from "./components/TableActionMenu";
 import { TopBar } from "./components/TopBar";
 import { useRestaurantStore } from "./state/useRestaurantStore";
+import { useAuth } from "./hooks/useAuth";
+import { LoginPage } from "./features/auth/LoginPage";
+import { RegisterPage } from "./features/auth/RegisterPage";
 import {
   buildEffectiveFixtures,
   buildEffectiveTables,
@@ -47,8 +50,40 @@ interface CanvasViewState {
   stageHeight: number;
 }
 
-function App() {
-  const { state, actions } = useRestaurantStore();
+export default function App() {
+  const { user, restaurantId, loading, signIn, signOut, signUp } = useAuth();
+  const [authPage, setAuthPage] = useState<"login" | "register">("login");
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-400 text-sm">Yükleniyor...</div>
+      </div>
+    );
+  }
+
+  if (!user || !restaurantId) {
+    if (authPage === "register") {
+      return (
+        <RegisterPage
+          onRegister={signUp}
+          onGoToLogin={() => setAuthPage("login")}
+        />
+      );
+    }
+    return (
+      <LoginPage
+        onLogin={signIn}
+        onGoToRegister={() => setAuthPage("register")}
+      />
+    );
+  }
+
+  return <RestaurantApp key={restaurantId} onSignOut={signOut} />;
+}
+
+function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
+  const { state, actions, isInitializing } = useRestaurantStore();
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [multiSelectedTableIds, setMultiSelectedTableIds] = useState<string[]>([]);
   const [clipboardTables, setClipboardTables] = useState<Array<{
@@ -64,6 +99,12 @@ function App() {
   const stateRef = useRef(state);
   stateRef.current = state;
   const tablesSnapshotRef = useRef<ReturnType<typeof buildEffectiveTables>>([]);
+  const handleCanvasViewportChange = useCallback(
+    (viewport: { width: number; height: number }) => {
+      setCanvasView((prev) => ({ ...prev, width: viewport.width, height: viewport.height }));
+    },
+    []
+  );
   const [canvasView, setCanvasView] = useState<CanvasViewState>({
     width: DEFAULT_CANVAS_VIEWPORT.width,
     height: DEFAULT_CANVAS_VIEWPORT.height,
@@ -76,6 +117,118 @@ function App() {
 
   const activeArea = getAreaById(state.areas, state.activeAreaId);
 
+  // Bu değişkenler hook'ların bağımlılıklarında kullanılıyor — early return'den önce hesaplanmalı
+  const reservationsAllAreas = getReservationsForDate(state.reservations, state.activeDateISO);
+  const areaNameById = useMemo(
+    () =>
+      state.areas.reduce<Record<string, string>>((acc, area) => {
+        acc[area.id] = area.name;
+        return acc;
+      }, {}),
+    [state.areas]
+  );
+
+  // Search effect — hook olduğu için early return'den önce
+  useEffect(() => {
+    if (!activeArea) return;
+    const query = state.reservationSearchQuery.trim().toLocaleLowerCase("tr-TR");
+    if (!query) return;
+    const match = reservationsAllAreas.find((reservation) =>
+      [reservation.guestName, reservation.phone, reservation.time, areaNameById[reservation.areaId] ?? reservation.areaId]
+        .join(" ")
+        .toLocaleLowerCase("tr-TR")
+        .includes(query)
+    );
+    if (!match) {
+      if (state.highlightedReservationId || state.highlightedTableId) {
+        actions.highlightReservation(null, null);
+      }
+      return;
+    }
+    if (state.highlightedReservationId === match.id && state.activeAreaId === match.areaId) return;
+    focusReservation(match, state.activeAreaId, actions);
+  }, [
+    actions,
+    activeArea,
+    areaNameById,
+    reservationsAllAreas,
+    state.activeAreaId,
+    state.highlightedReservationId,
+    state.highlightedTableId,
+    state.reservationSearchQuery
+  ]);
+
+  // Keyboard shortcuts — hook olduğu için early return'den önce
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const isInput =
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement instanceof HTMLSelectElement;
+      if (isInput) return;
+
+      const ctrl = e.ctrlKey || e.metaKey;
+      if (!ctrl) return;
+
+      if (e.key === "z" && !e.shiftKey) {
+        e.preventDefault();
+        actions.undo();
+        return;
+      }
+
+      if (e.key === "c") {
+        e.preventDefault();
+        const ids = multiSelectedRef.current.length > 0 ? multiSelectedRef.current : [];
+        if (ids.length === 0) return;
+        const copied = ids
+          .map((id) => tablesSnapshotRef.current.find((t) => t.id === id))
+          .filter(Boolean)
+          .map((t) => ({
+            shape: t!.shape,
+            x: t!.x,
+            y: t!.y,
+            width: t!.width,
+            height: t!.height,
+            label: t!.label,
+            capacity: t!.capacity
+          }));
+        if (copied.length > 0) {
+          setClipboardTables(copied);
+          setPasteOffset(20);
+        }
+        return;
+      }
+
+      if (e.key === "v") {
+        e.preventDefault();
+        const cb = clipboardRef.current;
+        const offset = pasteOffsetRef.current;
+        if (cb.length === 0) return;
+        const areaId = stateRef.current.activeAreaId;
+        if (!areaId) return;
+        actions.cloneTables(
+          areaId,
+          stateRef.current.targetMode,
+          cb.map((item) => ({ ...item, x: item.x + offset, y: item.y + offset }))
+        );
+        setPasteOffset((prev) => prev + 20);
+        return;
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [actions]);
+
+  // ── Early return'ler (tüm hook'lardan sonra) ──────────────────────────────
+
+  if (isInitializing) {
+    return (
+      <div className="min-h-screen bg-gray-950 flex items-center justify-center">
+        <div className="text-gray-400 text-sm">Plan yükleniyor...</div>
+      </div>
+    );
+  }
+
   if (!activeArea) {
     return (
       <div className="empty-app">
@@ -83,6 +236,13 @@ function App() {
         <p>Başlamak için bir alan oluştur.</p>
         <button className="btn btn--accent" onClick={() => actions.addArea("Salon")}>
           Alan Ekle
+        </button>
+        <button
+          onClick={onSignOut}
+          style={{ position: "fixed", bottom: 16, right: 16, zIndex: 9999 }}
+          className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 transition-colors"
+        >
+          Çıkış Yap
         </button>
       </div>
     );
@@ -111,7 +271,6 @@ function App() {
   }, {});
 
   const reservations = getReservationsForAreaDate(state.reservations, state.activeDateISO, activeArea.id);
-  const reservationsAllAreas = getReservationsForDate(state.reservations, state.activeDateISO);
   const reservationsByTable = buildReservationByTable(reservations);
   const reservationByOwner = buildReservationByOwner(reservations);
 
@@ -199,15 +358,6 @@ function App() {
       )
   );
 
-  const areaNameById = useMemo(
-    () =>
-      state.areas.reduce<Record<string, string>>((acc, area) => {
-        acc[area.id] = area.name;
-        return acc;
-      }, {}),
-    [state.areas]
-  );
-
   const selectionAnchorModel = selectedTable
     ? { x: selectedTable.x, y: selectedTable.y, width: selectedTable.width, height: selectedTable.height }
     : selectedGroupFrame
@@ -283,94 +433,6 @@ function App() {
       };
 
   const dateHasOverride = Boolean(state.overrides[state.activeDateISO]?.[activeArea.id]);
-
-  useEffect(() => {
-    const query = state.reservationSearchQuery.trim().toLocaleLowerCase("tr-TR");
-    if (!query) return;
-    const match = reservationsAllAreas.find((reservation) =>
-      [reservation.guestName, reservation.phone, reservation.time, areaNameById[reservation.areaId] ?? reservation.areaId]
-        .join(" ")
-        .toLocaleLowerCase("tr-TR")
-        .includes(query)
-    );
-    if (!match) {
-      if (state.highlightedReservationId || state.highlightedTableId) {
-        actions.highlightReservation(null, null);
-      }
-      return;
-    }
-    if (state.highlightedReservationId === match.id && state.activeAreaId === match.areaId) return;
-    focusReservation(match, state.activeAreaId, actions);
-  }, [
-    actions,
-    areaNameById,
-    reservationsAllAreas,
-    state.activeAreaId,
-    state.highlightedReservationId,
-    state.highlightedTableId,
-    state.reservationSearchQuery
-  ]);
-
-  // Keyboard shortcuts: Ctrl+Z undo, Ctrl+C copy, Ctrl+V paste
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      const isInput =
-        document.activeElement instanceof HTMLInputElement ||
-        document.activeElement instanceof HTMLTextAreaElement ||
-        document.activeElement instanceof HTMLSelectElement;
-      if (isInput) return;
-
-      const ctrl = e.ctrlKey || e.metaKey;
-      if (!ctrl) return;
-
-      if (e.key === "z" && !e.shiftKey) {
-        e.preventDefault();
-        actions.undo();
-        return;
-      }
-
-      if (e.key === "c") {
-        e.preventDefault();
-        const ids = multiSelectedRef.current.length > 0 ? multiSelectedRef.current : [];
-        if (ids.length === 0) return;
-        const copied = ids
-          .map((id) => tablesSnapshotRef.current.find((t) => t.id === id))
-          .filter(Boolean)
-          .map((t) => ({
-            shape: t!.shape,
-            x: t!.x,
-            y: t!.y,
-            width: t!.width,
-            height: t!.height,
-            label: t!.label,
-            capacity: t!.capacity
-          }));
-        if (copied.length > 0) {
-          setClipboardTables(copied);
-          setPasteOffset(20);
-        }
-        return;
-      }
-
-      if (e.key === "v") {
-        e.preventDefault();
-        const cb = clipboardRef.current;
-        const offset = pasteOffsetRef.current;
-        if (cb.length === 0) return;
-        const areaId = stateRef.current.activeAreaId;
-        if (!areaId) return;
-        actions.cloneTables(
-          areaId,
-          stateRef.current.targetMode,
-          cb.map((item) => ({ ...item, x: item.x + offset, y: item.y + offset }))
-        );
-        setPasteOffset((prev) => prev + 20);
-        return;
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actions]);
 
   const handleSelectTable = (tableId: string) => {
     if (state.mergeMode.active) {
@@ -489,6 +551,14 @@ function App() {
 
   return (
     <div className="app-shell">
+      <button
+        onClick={onSignOut}
+        title="Çıkış Yap"
+        style={{ position: "fixed", bottom: 16, right: 16, zIndex: 9999 }}
+        className="bg-gray-800 hover:bg-gray-700 text-gray-300 hover:text-white text-xs px-3 py-1.5 rounded-lg border border-gray-700 transition-colors"
+      >
+        Çıkış Yap
+      </button>
       <TopBar
         selectedDateISO={state.activeDateISO}
         onDateChange={actions.setDate}
@@ -526,9 +596,7 @@ function App() {
           onSelectMergedGroup={actions.selectMergedGroup}
           onSelectFixture={actions.selectFixture}
           onInteractionStart={actions.cancelReservationIntent}
-          onCanvasViewportChange={(viewport) => {
-            setCanvasView((prev) => ({ ...prev, width: viewport.width, height: viewport.height }));
-          }}
+          onCanvasViewportChange={handleCanvasViewportChange}
           onCanvasViewChange={setCanvasView}
           onClearSelection={() => {
             if (state.mergeMode.active) return;
@@ -851,5 +919,3 @@ function getReservationCapacity(
   const total = reservation.tableIds.reduce((sum, tableId) => sum + (tableMap[tableId]?.capacity ?? 0), 0);
   return Math.max(1, total);
 }
-
-export default App;

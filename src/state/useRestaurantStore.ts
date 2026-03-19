@@ -1,5 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
-import { mockAreas, mockOverrides, mockReservations } from "../data/mockData";
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { buildEffectiveTables, buildTableMap, getAreaById, getMergedGroupFrame, getOverride } from "../utils/layout";
 import { toISODate } from "../utils/date";
 import {
@@ -73,31 +72,6 @@ type Action =
       tables: Array<{ shape: TableShape; x: number; y: number; width: number; height: number; label: string; capacity: number }>;
     };
 
-const STORAGE_KEY = "rezerve-v1";
-
-interface PersistedData {
-  areas: Area[];
-  reservations: Reservation[];
-  overrides: OverridesByDate;
-}
-
-function loadPersisted(): Partial<PersistedData> {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return {};
-    return JSON.parse(raw) as PersistedData;
-  } catch {
-    return {};
-  }
-}
-
-function savePersisted(areas: Area[], reservations: Reservation[], overrides: OverridesByDate): void {
-  try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ areas, reservations, overrides }));
-  } catch {
-    // storage full or unavailable
-  }
-}
 
 let sequence = 0;
 function uid(prefix: string): string {
@@ -160,13 +134,11 @@ function cloneOverride(override: LayoutOverride): LayoutOverride {
 }
 
 function createInitialState(): StoreState {
-  const persisted = loadPersisted();
-  const areas = persisted.areas?.length ? persisted.areas : mockAreas;
   return {
-    areas,
-    reservations: persisted.reservations ?? mockReservations,
-    overrides: persisted.overrides ?? mockOverrides,
-    activeAreaId: areas[0]?.id ?? null,
+    areas: [],
+    reservations: [],
+    overrides: {},
+    activeAreaId: null,
     activeDateISO: toISODate(new Date()),
     selectedObject: null,
     interactionMode: "idle",
@@ -751,13 +723,13 @@ export function useRestaurantStore() {
 
   const { areas, reservations, overrides } = state;
 
-  // localStorage yedek (senkron, her değişimde)
-  useEffect(() => {
-    savePersisted(areas, reservations, overrides);
-  }, [areas, reservations, overrides]);
+  // localStorage artık kullanılmıyor — veri Supabase'de
+
+  // Supabase ilk yükleme tamamlanana kadar true
+  const [isInitializing, setIsInitializing] = useState(true);
 
   // Supabase'den yükleme devam ederken sync'i engelle
-  const isLoadingFromSupabaseRef = useRef(false);
+  const isLoadingFromSupabaseRef = useRef(true);
 
   // Supabase sync (debounced — sürükleme sırasında çok sık yazmamak için 1 sn bekler)
   const supabaseSyncTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -774,17 +746,19 @@ export function useRestaurantStore() {
 
   // Supabase'den ilk yükleme (uygulama açılışında bir kez çalışır)
   useEffect(() => {
-    isLoadingFromSupabaseRef.current = true;
     loadAllFromSupabase()
       .then((data) => {
-        // Supabase'de veri varsa state'i güncelle; yoksa localStorage verisini koru
-        if (data.areas.length > 0 || data.reservations.length > 0) {
-          dispatch({ type: "RESTORE_SNAPSHOT", snapshot: data });
+        // Her zaman Supabase verisini kullan
+        dispatch({ type: "RESTORE_SNAPSHOT", snapshot: data });
+        // Yeni kullanıcı: hiç salon yoksa varsayılan "Ana Salon" oluştur
+        if (data.areas.length === 0) {
+          dispatch({ type: "ADD_AREA", name: "Ana Salon" });
         }
       })
       .catch(console.error)
       .finally(() => {
         isLoadingFromSupabaseRef.current = false;
+        setIsInitializing(false);
       });
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -870,5 +844,5 @@ export function useRestaurantStore() {
     [dispatchWithHistory]
   );
 
-  return { state, actions };
+  return { state, actions, isInitializing };
 }

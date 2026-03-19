@@ -1,11 +1,43 @@
 import { supabase } from "./supabase";
 import type { Area, LayoutOverride, OverridesByDate, Reservation } from "../types";
 
-// Auth eklenince kaldırılacak — şimdilik sabit restoran ID
-export const TEMP_RESTAURANT_ID = "00000000-0000-0000-0000-000000000001";
+// Giriş yapıldıktan sonra setRestaurantId() ile set edilir
+let currentRestaurantId = "";
+
+export function setRestaurantId(id: string): void {
+  currentRestaurantId = id;
+}
 
 // Supabase bağlantısı yapılandırılmış mı?
 const configured = Boolean(import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_ANON_KEY);
+
+// ─── Restoran ─────────────────────────────────────────────────────────────────
+
+/** Kullanıcının restoranını çeker. */
+export async function getRestaurantForUser(userId: string): Promise<{ id: string; name: string } | null> {
+  const { data, error } = await supabase
+    .from("restaurants")
+    .select("id, name")
+    .eq("owner_id", userId)
+    .single();
+  if (error) return null;
+  return data as { id: string; name: string };
+}
+
+/** Yeni restoran oluşturur, oluşturulan kaydı döner. */
+export async function createRestaurant(userId: string, name: string): Promise<{ id: string; name: string }> {
+  const slug = name
+    .toLocaleLowerCase("tr-TR")
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9-]/g, "");
+  const { data, error } = await supabase
+    .from("restaurants")
+    .insert({ owner_id: userId, name, slug })
+    .select("id, name")
+    .single();
+  if (error) throw error;
+  return data as { id: string; name: string };
+}
 
 // ─── Yükle ────────────────────────────────────────────────────────────────────
 
@@ -21,9 +53,9 @@ export async function loadAllFromSupabase(): Promise<{
     supabase
       .from("areas")
       .select("id, name, plan_data, sort_order")
-      .eq("restaurant_id", TEMP_RESTAURANT_ID)
+      .eq("restaurant_id", currentRestaurantId)
       .order("sort_order"),
-    supabase.from("reservations").select("*").eq("restaurant_id", TEMP_RESTAURANT_ID),
+    supabase.from("reservations").select("*").eq("restaurant_id", currentRestaurantId),
     supabase.from("layout_overrides").select("area_id, date_iso, override_data")
   ]);
 
@@ -72,16 +104,14 @@ export async function loadAllFromSupabase(): Promise<{
 /** Tüm area'ları Supabase'e yazar (upsert). */
 export async function syncAreas(areas: Area[]): Promise<void> {
   if (!configured || areas.length === 0) return;
-  console.log("syncAreas çağrıldı, gönderilen veri:", JSON.stringify(areas.map(a => ({ id: a.id, name: a.name }))));
   const rows = areas.map((area, i) => ({
     id: area.id,
-    restaurant_id: TEMP_RESTAURANT_ID,
+    restaurant_id: currentRestaurantId,
     name: area.name,
     plan_data: { defaultTables: area.defaultTables, defaultFixtures: area.defaultFixtures },
     sort_order: i
   }));
-  const { data, error } = await supabase.from("areas").upsert(rows, { onConflict: "id" });
-  console.log("syncAreas sonuç:", { data, error });
+  const { error } = await supabase.from("areas").upsert(rows, { onConflict: "id" });
   if (error) throw error;
 }
 
@@ -96,9 +126,7 @@ export async function syncOverrides(overrides: OverridesByDate): Promise<void> {
     }))
   );
   if (rows.length === 0) return;
-  console.log("syncOverrides çağrıldı, satır sayısı:", rows.length);
-  const { data, error } = await supabase.from("layout_overrides").upsert(rows, { onConflict: "area_id,date_iso" });
-  console.log("syncOverrides sonuç:", { data, error });
+  const { error } = await supabase.from("layout_overrides").upsert(rows, { onConflict: "area_id,date_iso" });
   if (error) throw error;
 }
 
@@ -116,10 +144,9 @@ export async function deleteOverrideFromDb(areaId: string, dateISO: string): Pro
 /** Tüm rezervasyonları Supabase'e yazar (upsert). */
 export async function syncReservations(reservations: Reservation[]): Promise<void> {
   if (!configured || reservations.length === 0) return;
-  console.log("syncReservations çağrıldı, rezervasyon sayısı:", reservations.length);
   const rows = reservations.map((r) => ({
     id: r.id,
-    restaurant_id: TEMP_RESTAURANT_ID,
+    restaurant_id: currentRestaurantId,
     area_id: r.areaId,
     date_iso: r.dateISO,
     owner_type: r.ownerType,
@@ -132,8 +159,7 @@ export async function syncReservations(reservations: Reservation[]): Promise<voi
     notes: r.notes,
     status: r.status
   }));
-  const { data, error } = await supabase.from("reservations").upsert(rows, { onConflict: "id" });
-  console.log("syncReservations sonuç:", { data, error });
+  const { error } = await supabase.from("reservations").upsert(rows, { onConflict: "id" });
   if (error) throw error;
 }
 
