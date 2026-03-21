@@ -2,7 +2,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from "react-router-dom";
 import { AreaTabs } from "./components/AreaTabs";
 import { FloorCanvas } from "./components/FloorCanvas";
-import { FloatingPalette } from "./components/FloatingPalette";
+import { SidePanel, tableItems, fixtureItems, ShapeIcon, FixtureIcon } from "./components/SidePanel";
 import { GroupEditorCard } from "./components/GroupEditorCard";
 import { ObjectEditorCard } from "./components/ObjectEditorCard";
 import { ReservationCard, type ReservationDraft } from "./components/ReservationCard";
@@ -31,6 +31,8 @@ import {
 import { clamp, fixtureSize, resolveSpawnPosition, tableSize } from "./utils/canvas";
 import { toISODate } from "./utils/date";
 import {
+  type Fixture,
+  type FixtureKind,
   type Reservation,
   type ReservationOwnerType,
   type SelectedObject,
@@ -41,7 +43,7 @@ import {
 const DEFAULT_CANVAS_VIEWPORT = { width: 1200, height: 680 };
 const ACTION_MENU_SIZE = { width: 250, height: 96 };
 const OBJECT_EDITOR_SIZE = { width: 302, height: 248 };
-const RESERVATION_CARD_SIZE = { width: 294, height: 394 };
+const RESERVATION_CARD_SIZE = { width: 294, height: 460 };
 
 interface CanvasViewState {
   width: number;
@@ -69,7 +71,7 @@ export default function App() {
 
 /** Giriş yapmış kullanıcıyı /app'e, yapmamışı login/register'a yönlendirir */
 function AuthRoute({ page }: { page: "login" | "register" }) {
-  const { user, restaurantId, loading, signIn, signUp } = useAuth();
+  const { user, restaurantId, loading, signIn, signUp, signInWithGoogle } = useAuth();
   const navigate = useNavigate();
 
   if (loading) {
@@ -89,6 +91,7 @@ function AuthRoute({ page }: { page: "login" | "register" }) {
           await signUp(email, password, restaurantName);
         }}
         onGoToLogin={() => navigate("/login")}
+        onGoogleSignIn={signInWithGoogle}
       />
     );
   }
@@ -100,13 +103,14 @@ function AuthRoute({ page }: { page: "login" | "register" }) {
         navigate("/app");
       }}
       onGoToRegister={() => navigate("/register")}
+      onGoogleSignIn={signInWithGoogle}
     />
   );
 }
 
 /** Giriş yapmamış kullanıcıyı /login'e yönlendirir */
 function ProtectedRoute() {
-  const { user, restaurantId, loading, signOut } = useAuth();
+  const { user, restaurantId, restaurantName, loading, signOut } = useAuth();
 
   if (loading) {
     return (
@@ -118,26 +122,36 @@ function ProtectedRoute() {
 
   if (!user || !restaurantId) return <Navigate to="/login" replace />;
 
-  return <RestaurantApp key={restaurantId} onSignOut={async () => { await signOut(); }} />;
+  return <RestaurantApp key={restaurantId} userEmail={user?.email ?? ""} restaurantName={restaurantName ?? ""} onSignOut={async () => { await signOut(); }} />;
 }
 
-function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
+function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: () => void; userEmail: string; restaurantName: string }) {
   const { state, actions, isInitializing } = useRestaurantStore();
-  const [paletteExpanded, setPaletteExpanded] = useState(false);
+  const [mobileTab, setMobileTab] = useState<"plan" | "reservations" | "settings">("plan");
+  const [fabOpen, setFabOpen] = useState(false);
+  const [mobileEditingAreaId, setMobileEditingAreaId] = useState<string | null>(null);
+  const [mobileEditAreaName, setMobileEditAreaName] = useState("");
   const [multiSelectedTableIds, setMultiSelectedTableIds] = useState<string[]>([]);
   const [clipboardTables, setClipboardTables] = useState<Array<{
     shape: TableShape; x: number; y: number; width: number; height: number; label: string; capacity: number;
   }>>([]);
+  const [clipboardFixture, setClipboardFixture] = useState<Omit<Fixture, "id"> | null>(null);
   const [pasteOffset, setPasteOffset] = useState(20);
+  const [pendingTableDelete, setPendingTableDelete] = useState<{
+    tableId: string; areaId: string; reservationId: string | null;
+  } | null>(null);
   const multiSelectedRef = useRef<string[]>([]);
   multiSelectedRef.current = multiSelectedTableIds;
   const clipboardRef = useRef(clipboardTables);
   clipboardRef.current = clipboardTables;
+  const clipboardFixtureRef = useRef(clipboardFixture);
+  clipboardFixtureRef.current = clipboardFixture;
   const pasteOffsetRef = useRef(pasteOffset);
   pasteOffsetRef.current = pasteOffset;
   const stateRef = useRef(state);
   stateRef.current = state;
   const tablesSnapshotRef = useRef<ReturnType<typeof buildEffectiveTables>>([]);
+  const fixturesSnapshotRef = useRef<ReturnType<typeof buildEffectiveFixtures>>([]);
   const handleCanvasViewportChange = useCallback(
     (viewport: { width: number; height: number }) => {
       setCanvasView((prev) => ({ ...prev, width: viewport.width, height: viewport.height }));
@@ -207,17 +221,79 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
       if (isInput) return;
 
       const ctrl = e.ctrlKey || e.metaKey;
+
+      // ── Escape: seçimi temizle / merge modunu iptal et ──────────────────
+      if (e.key === "Escape") {
+        e.preventDefault();
+        if (stateRef.current.mergeMode.active) {
+          actions.cancelMergeMode();
+        } else {
+          actions.clearSelection();
+        }
+        return;
+      }
+
+      // ── Delete / Backspace: seçili masayı sil ───────────────────────────
+      if (e.key === "Delete" || e.key === "Backspace") {
+        const selected = stateRef.current.selectedObject;
+        if (!selected || selected.kind !== "table") return;
+        const areaId = stateRef.current.activeAreaId;
+        if (!areaId) return;
+        const tableId = selected.id;
+        const s = stateRef.current;
+        const reservation = s.reservations.find(
+          (r) =>
+            r.tableIds.includes(tableId) &&
+            r.status !== "cancelled" &&
+            r.status !== "no_show" &&
+            (s.targetMode === "default" || r.dateISO === s.activeDateISO)
+        );
+        if (reservation) {
+          e.preventDefault();
+          setPendingTableDelete({ tableId, areaId, reservationId: reservation.id });
+          return;
+        }
+        if (!window.confirm("Bu masa silinsin mi?")) return;
+        e.preventDefault();
+        actions.deleteTable(areaId, tableId, s.targetMode);
+        return;
+      }
+
       if (!ctrl) return;
 
+      // ── Ctrl+Z: undo ─────────────────────────────────────────────────────
       if (e.key === "z" && !e.shiftKey) {
         e.preventDefault();
         actions.undo();
         return;
       }
 
+      // Kopyalanacak ID'leri belirle: çoklu seçim varsa onu kullan, yoksa tekil seçimi
+      function getSelectedTableIds(): string[] {
+        const multi = multiSelectedRef.current;
+        if (multi.length > 0) return multi;
+        const sel = stateRef.current.selectedObject;
+        if (sel?.kind === "table") return [sel.id];
+        return [];
+      }
+
+      // ── Ctrl+C: kopyala ──────────────────────────────────────────────────
       if (e.key === "c") {
         e.preventDefault();
-        const ids = multiSelectedRef.current.length > 0 ? multiSelectedRef.current : [];
+        // Fixture kopyalama
+        const sel = stateRef.current.selectedObject;
+        if (sel?.kind === "fixture") {
+          const f = fixturesSnapshotRef.current.find((fx) => fx.id === sel.id);
+          if (f) {
+            const { id: _id, ...source } = f;
+            setClipboardFixture(source);
+            setClipboardTables([]);
+            setPasteOffset(20);
+          }
+          return;
+        }
+        // Masa kopyalama
+        const ids = getSelectedTableIds();
         if (ids.length === 0) return;
         const copied = ids
           .map((id) => tablesSnapshotRef.current.find((t) => t.id === id))
@@ -233,18 +309,56 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
           }));
         if (copied.length > 0) {
           setClipboardTables(copied);
+          setClipboardFixture(null);
           setPasteOffset(20);
         }
         return;
       }
 
-      if (e.key === "v") {
+      // ── Ctrl+X: kes (kopyala + sil) ──────────────────────────────────────
+      if (e.key === "x") {
         e.preventDefault();
-        const cb = clipboardRef.current;
-        const offset = pasteOffsetRef.current;
-        if (cb.length === 0) return;
+        const ids = getSelectedTableIds();
+        if (ids.length === 0) return;
         const areaId = stateRef.current.activeAreaId;
         if (!areaId) return;
+        const cut = ids
+          .map((id) => tablesSnapshotRef.current.find((t) => t.id === id))
+          .filter(Boolean)
+          .map((t) => ({
+            shape: t!.shape,
+            x: t!.x,
+            y: t!.y,
+            width: t!.width,
+            height: t!.height,
+            label: t!.label,
+            capacity: t!.capacity
+          }));
+        if (cut.length > 0) {
+          setClipboardTables(cut);
+          setPasteOffset(20);
+          // Kesilenleri sil (rezervasyon kontrolü yapmadan — kes işlemi kasıtlı)
+          ids.forEach((id) => actions.deleteTable(areaId, id, stateRef.current.targetMode));
+        }
+        return;
+      }
+
+      // ── Ctrl+V: yapıştır ─────────────────────────────────────────────────
+      if (e.key === "v") {
+        e.preventDefault();
+        const offset = pasteOffsetRef.current;
+        const areaId = stateRef.current.activeAreaId;
+        if (!areaId) return;
+        // Fixture yapıştırma
+        const cbFixture = clipboardFixtureRef.current;
+        if (cbFixture) {
+          actions.cloneFixture(areaId, stateRef.current.targetMode, cbFixture, cbFixture.x + offset, cbFixture.y + offset);
+          setPasteOffset((prev) => prev + 20);
+          return;
+        }
+        // Masa yapıştırma
+        const cb = clipboardRef.current;
+        if (cb.length === 0) return;
         actions.cloneTables(
           areaId,
           stateRef.current.targetMode,
@@ -293,6 +407,7 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
   const tables = buildEffectiveTables(activeArea, visibleOverride);
   tablesSnapshotRef.current = tables;
   const fixtures = buildEffectiveFixtures(activeArea, visibleOverride);
+  fixturesSnapshotRef.current = fixtures;
   const tableMap = buildTableMap(tables);
   const mergedGroupMap = getMergedGroupMap(visibleOverride);
   const mergedGroupsById = getMergedGroupsById(visibleOverride);
@@ -320,6 +435,10 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
     const areaTables = buildEffectiveTables(area, areaOverride);
     const areaTableMap = buildTableMap(areaTables);
     const mergedById = getMergedGroupsById(areaOverride);
+    if (reservation.ownerType === "table" && !areaTableMap[reservation.ownerId]) {
+      acc[reservation.id] = "Atanmış masa silinmiş";
+      return acc;
+    }
     const capacity = getReservationCapacity(reservation, areaTableMap, mergedById);
     if (reservation.guestCount > capacity) {
       acc[reservation.id] = `${reservation.guestCount}/${capacity}`;
@@ -428,24 +547,16 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
     state.selectedObject && (state.selectedObject.kind === "table" || state.selectedObject.kind === "group")
   );
   const showTableEditor = Boolean(
+    state.layoutUnlocked &&
     selectedObject &&
-      state.interactionMode === "editingObject" &&
-      selectedObject.kind === "table" &&
-      !state.mergeMode.active
-  ) || Boolean(
-    selectedObject &&
-      state.targetMode === "default" &&
+      (state.interactionMode === "editingObject" || state.targetMode === "default") &&
       selectedObject.kind === "table" &&
       !state.mergeMode.active
   );
   const showGroupEditor = Boolean(
+    state.layoutUnlocked &&
     selectedObject &&
-      state.interactionMode === "editingObject" &&
-      selectedObject.kind === "group" &&
-      !state.mergeMode.active
-  ) || Boolean(
-    selectedObject &&
-      state.targetMode === "default" &&
+      (state.interactionMode === "editingObject" || state.targetMode === "default") &&
       selectedObject.kind === "group" &&
       !state.mergeMode.active
   );
@@ -457,13 +568,20 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
       !showTableEditor &&
       !showGroupEditor
   );
+  // Düzenleme modu kapalıyken masa/grup seçilince bilgi kartı
+  const showTableInfo = Boolean(
+    !state.layoutUnlocked &&
+      selectedObject &&
+      (selectedObject.kind === "table" || selectedObject.kind === "group") &&
+      !state.mergeMode.active
+  );
   const showObjectEditor = showTableEditor || showGroupEditor;
 
   const floatingLayout = selectionAnchor
     ? resolveContextLayout(selectionAnchor, { width: canvasView.width, height: canvasView.height }, {
         showObjectActions,
         showObjectEditor,
-        showReservationCard
+        showReservationCard: showReservationCard || showTableInfo
       })
     : {
         actionPosition: { left: 16, top: 16 },
@@ -529,7 +647,7 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
   const handleQuickAddTable = (shape: TableShape) => {
     const size = tableSize(shape);
     const desired = {
-      x: (canvasView.scrollLeft + (paletteExpanded ? 240 : 64)) / Math.max(0.01, canvasView.zoom),
+      x: (canvasView.scrollLeft + 80) / Math.max(0.01, canvasView.zoom),
       y: (canvasView.scrollTop + 96) / Math.max(0.01, canvasView.zoom)
     };
     const occupied = [
@@ -543,10 +661,10 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
     actions.addTable(activeArea.id, state.targetMode, shape, spot.x, spot.y);
   };
 
-  const handleQuickAddFixture = (fixtureKind: "door" | "window") => {
+  const handleQuickAddFixture = (fixtureKind: FixtureKind) => {
     const size = fixtureSize(fixtureKind);
     const desired = {
-      x: (canvasView.scrollLeft + (paletteExpanded ? 260 : 86)) / Math.max(0.01, canvasView.zoom),
+      x: (canvasView.scrollLeft + 80) / Math.max(0.01, canvasView.zoom),
       y: (canvasView.scrollTop + 116) / Math.max(0.01, canvasView.zoom)
     };
     const occupied = [
@@ -649,45 +767,70 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
 
   return (
     <div className="app-shell">
-      <TopBar
-        selectedDateISO={state.activeDateISO}
-        onDateChange={actions.setDate}
-        onToday={() => actions.setDate(toISODate(new Date()))}
-        hasOverride={(dateISO) => Boolean(state.overrides[dateISO]?.[activeArea.id])}
-        dateHasOverride={dateHasOverride}
-        onResetDay={() => actions.resetDailyOverride(state.activeDateISO, activeArea.id)}
-        targetMode={state.targetMode}
-        onTargetModeChange={actions.setTargetMode}
-        layoutUnlocked={state.layoutUnlocked}
-        onLayoutUnlockedChange={actions.setLayoutUnlocked}
-        overrideCountForArea={overrideCountForArea}
-      />
+      {/* TopBar: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
+      <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
+        <TopBar
+          selectedDateISO={state.activeDateISO}
+          onDateChange={actions.setDate}
+          onToday={() => actions.setDate(toISODate(new Date()))}
+          hasOverride={(dateISO) => Boolean(state.overrides[dateISO]?.[activeArea.id])}
+          dateHasOverride={dateHasOverride}
+          onResetDay={() => actions.resetDailyOverride(state.activeDateISO, activeArea.id)}
+          targetMode={state.targetMode}
+          onTargetModeChange={actions.setTargetMode}
+          layoutUnlocked={state.layoutUnlocked}
+          onLayoutUnlockedChange={actions.setLayoutUnlocked}
+          overrideCountForArea={overrideCountForArea}
+        />
+      </div>
 
-      <AreaTabs
-        areas={state.areas}
-        activeAreaId={activeArea.id}
-        onSelectArea={actions.setArea}
-        onAddArea={actions.addArea}
-        onRenameArea={actions.renameArea}
-        onDeleteArea={actions.deleteArea}
-      />
+      {/* Restoran adı + AreaTabs: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
+      <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
+        {restaurantName && (
+          <div className="px-4 pt-2 pb-0 bg-white">
+            <span className="text-xs font-semibold text-indigo-600 tracking-wide uppercase">{restaurantName}</span>
+          </div>
+        )}
+        <AreaTabs
+          areas={state.areas}
+          activeAreaId={activeArea.id}
+          onSelectArea={actions.setArea}
+          onAddArea={actions.addArea}
+          onRenameArea={actions.renameArea}
+          onDeleteArea={actions.deleteArea}
+        />
+      </div>
 
-      {/* ── Content row: canvas + sidebar ── */}
-      <div style={{ display: "flex", flex: 1, minHeight: 0, overflow: "hidden" }}>
+      {/* ── İçerik satırı: sol panel + canvas + sidebar ── */}
+      <div style={{ flex: 1, minHeight: 0, overflow: "hidden", width: "100%", maxWidth: "100vw" }} className="flex">
 
-        {/* Canvas column */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", minWidth: 0, minHeight: 0 }}>
+        {/* Sol Panel: sadece masaüstünde */}
+        <div className="hidden md:contents">
+          <SidePanel
+            enabled={state.layoutUnlocked}
+            onQuickAddTable={handleQuickAddTable}
+            onQuickAddFixture={handleQuickAddFixture}
+            selectedFixture={selectedFixture}
+            onUpdateFixture={(fixtureId, patch) => actions.updateFixture(activeArea.id, fixtureId, state.targetMode, patch)}
+            onDeleteFixture={(fixtureId) => {
+              actions.deleteFixture(activeArea.id, fixtureId, state.targetMode);
+              actions.clearSelection();
+            }}
+          />
+        </div>
+
+        {/* Canvas kolonu: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
+        <div
+          style={{ flexDirection: "column", minWidth: 0, minHeight: 0 }}
+          className={`flex-1 min-w-0 overflow-hidden ${mobileTab !== "plan" ? "hidden md:flex" : "flex"}`}
+        >
 
           {/* Summary bar */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 bg-white border-b border-gray-200 text-xs text-gray-500">
-            <span className="font-semibold text-gray-700">{summaryDateLabel}</span>
-            <span className="text-gray-300">·</span>
-            <span>{activeForDay.length} rezervasyon</span>
+          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
+            <span className="bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-gray-700">{summaryDateLabel}</span>
+            <span className="bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-gray-700">{activeForDay.length} rezervasyon</span>
             {summaryGuestCount > 0 && (
-              <>
-                <span className="text-gray-300">·</span>
-                <span>{summaryGuestCount} misafir</span>
-              </>
+              <span className="bg-gray-100 rounded-full px-3 py-1 text-sm font-medium text-gray-700">{summaryGuestCount} misafir</span>
             )}
           </div>
 
@@ -769,31 +912,41 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
                     display: "flex",
                     alignItems: "center",
                     justifyContent: "center",
-                    pointerEvents: "none",
                     zIndex: 5,
+                    pointerEvents: "none",
                   }}
                 >
-                  <div style={{ textAlign: "center" }}>
-                    <svg
-                      style={{ width: 32, height: 32, color: "#d1d5db", margin: "0 auto 10px" }}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10 19l-7-7m0 0l7-7m-7 7h18" />
-                    </svg>
-                    <p style={{ fontSize: 13, color: "#9ca3af", fontWeight: 500 }}>
-                      Soldan masa seçip canvas'a sürükleyin
+                  <div
+                    style={{ pointerEvents: "auto" }}
+                    className="onboarding-card"
+                  >
+                    <div className="onboarding-card__icon">
+                      <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+                        <rect x="6" y="10" width="28" height="20" rx="4" fill="#e0e7ff" stroke="#6366f1" strokeWidth="1.5" />
+                        <circle cx="20" cy="4"  r="3" fill="#a5b4fc" />
+                        <circle cx="20" cy="36" r="3" fill="#a5b4fc" />
+                        <circle cx="3"  cy="20" r="3" fill="#a5b4fc" />
+                        <circle cx="37" cy="20" r="3" fill="#a5b4fc" />
+                      </svg>
+                    </div>
+                    <h2 className="onboarding-card__title">Restoranınızı tasarlamaya başlayın</h2>
+                    <p className="onboarding-card__sub">
+                      Soldaki panelden masa ve dekorasyon elemanlarını seçerek salonunuzu oluşturun.
                     </p>
+                    {!state.layoutUnlocked && (
+                      <button
+                        className="onboarding-card__btn"
+                        onClick={() => {
+                          actions.setTargetMode("default");
+                          actions.setLayoutUnlocked(true);
+                        }}
+                      >
+                        Düzenlemeye Başla
+                      </button>
+                    )}
                   </div>
                 </div>
               )}
-
-              <FloatingPalette
-                enabled={state.layoutUnlocked}
-                expanded={paletteExpanded}
-                onToggleExpanded={() => setPaletteExpanded((prev) => !prev)}
-                onQuickAddTable={handleQuickAddTable}
-                onQuickAddFixture={handleQuickAddFixture}
-              />
 
               {showObjectActions ? (
                 <TableActionMenu
@@ -838,10 +991,22 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
                   position={floatingLayout.editorPosition}
                   onUpdateTable={(patch) => actions.updateTable(activeArea.id, selectedTable.id, state.targetMode, patch)}
                   onDeleteTable={() => {
-                    const message = selectedTableHasReservation
-                      ? "Bu masada rezervasyon var. Silmek istediğine emin misin?"
-                      : "Bu masa silinsin mi?";
-                    if (!window.confirm(message)) return;
+                    if (selectedTableHasReservation) {
+                      const reservation = state.reservations.find(
+                        (r) =>
+                          r.tableIds.includes(selectedTable.id) &&
+                          r.status !== "cancelled" &&
+                          r.status !== "no_show" &&
+                          (state.targetMode === "default" || r.dateISO === state.activeDateISO)
+                      );
+                      setPendingTableDelete({
+                        tableId: selectedTable.id,
+                        areaId: activeArea.id,
+                        reservationId: reservation?.id ?? null,
+                      });
+                      return;
+                    }
+                    if (!window.confirm("Bu masa silinsin mi?")) return;
                     actions.deleteTable(activeArea.id, selectedTable.id, state.targetMode);
                   }}
                 />
@@ -861,6 +1026,7 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
                   objectLabel={reservationLabel}
                   defaultCapacity={reservationCapacity}
                   reservation={selectedReservation}
+                  dateISO={state.activeDateISO}
                   warningText={reservationWarning}
                   position={floatingLayout.reservationPosition}
                   onClose={actions.cancelReservationIntent}
@@ -869,32 +1035,330 @@ function RestaurantApp({ onSignOut }: { onSignOut: () => void }) {
                     actions.deleteReservation(reservationId);
                     actions.cancelReservationIntent();
                   }}
+                  onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+                />
+              ) : null}
+
+              {showTableInfo ? (
+                <TableInfoCard
+                  label={reservationLabel}
+                  reservation={selectedReservation}
+                  position={floatingLayout.reservationPosition}
+                  onClose={actions.clearSelection}
+                  onOpenReservation={() => {
+                    // Düzenleme modu kapalıyken rezervasyon eklemek için targetMode=day açılır
+                    if (state.targetMode !== "day") actions.setTargetMode("day");
+                    actions.cancelReservationIntent();
+                  }}
                 />
               ) : null}
             </FloorCanvas>
           </main>
         </div>
 
-        {/* Right Sidebar */}
-        <ReservationSidebar
-          reservations={reservationsAllAreas}
-          tables={tables}
-          mergedGroupMap={mergedGroupMap}
-          mergedGroupsById={mergedGroupsById}
-          activeAreaId={state.activeAreaId}
-          areaNameById={areaNameById}
-          activeDateISO={state.activeDateISO}
-          highlightedReservationId={state.highlightedReservationId}
-          searchQuery={state.reservationSearchQuery}
-          warningByReservation={warningByReservation}
-          onSearchChange={actions.setReservationSearchQuery}
-          onSelectReservation={handleSelectReservation}
-          onSaveReservation={handleSidebarSave}
-          onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
-          onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
-          onSignOut={onSignOut}
-        />
+        {/* Masaüstü sidebar: sadece masaüstünde görünür */}
+        <div className="hidden md:contents">
+          <ReservationSidebar
+            reservations={reservationsAllAreas}
+            tables={tables}
+            mergedGroupMap={mergedGroupMap}
+            mergedGroupsById={mergedGroupsById}
+            activeAreaId={state.activeAreaId}
+            areaNameById={areaNameById}
+            activeDateISO={state.activeDateISO}
+            highlightedReservationId={state.highlightedReservationId}
+            searchQuery={state.reservationSearchQuery}
+            warningByReservation={warningByReservation}
+            onSearchChange={actions.setReservationSearchQuery}
+            onSelectReservation={handleSelectReservation}
+            onSaveReservation={handleSidebarSave}
+            onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
+            onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+            onSignOut={onSignOut}
+          />
+        </div>
+
+        {/* Mobil: Rezervasyonlar sekmesi */}
+        {mobileTab === "reservations" && (
+          <ReservationSidebar
+            className="flex-1 flex flex-col overflow-hidden bg-white md:hidden"
+            reservations={reservationsAllAreas}
+            tables={tables}
+            mergedGroupMap={mergedGroupMap}
+            mergedGroupsById={mergedGroupsById}
+            activeAreaId={state.activeAreaId}
+            areaNameById={areaNameById}
+            activeDateISO={state.activeDateISO}
+            highlightedReservationId={state.highlightedReservationId}
+            searchQuery={state.reservationSearchQuery}
+            warningByReservation={warningByReservation}
+            onSearchChange={actions.setReservationSearchQuery}
+            onSelectReservation={handleSelectReservation}
+            onSaveReservation={handleSidebarSave}
+            onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
+            onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+            onSignOut={onSignOut}
+          />
+        )}
+
+        {/* Mobil: Ayarlar sekmesi */}
+        {mobileTab === "settings" && (
+          <div className="flex-1 overflow-y-auto bg-gray-50 md:hidden pb-14">
+            <div className="p-4 space-y-4">
+
+              {/* Salon Yönetimi */}
+              <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between">
+                  <h2 className="font-semibold text-sm text-gray-900">Salonlar</h2>
+                  <button
+                    onClick={() => actions.addArea("Yeni Salon")}
+                    className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+                  >
+                    + Ekle
+                  </button>
+                </div>
+                {state.areas.map((area) =>
+                  mobileEditingAreaId === area.id ? (
+                    <div key={area.id} className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100 last:border-0">
+                      <input
+                        className="flex-1 text-sm border border-gray-300 rounded-lg px-2 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                        value={mobileEditAreaName}
+                        onChange={(e) => setMobileEditAreaName(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") { actions.renameArea(area.id, mobileEditAreaName.trim() || area.name); setMobileEditingAreaId(null); }
+                          if (e.key === "Escape") setMobileEditingAreaId(null);
+                        }}
+                        autoFocus
+                      />
+                      <button
+                        onClick={() => { actions.renameArea(area.id, mobileEditAreaName.trim() || area.name); setMobileEditingAreaId(null); }}
+                        className="text-xs font-semibold text-indigo-600 px-2 py-1"
+                      >
+                        Kaydet
+                      </button>
+                      <button onClick={() => setMobileEditingAreaId(null)} className="text-xs text-gray-400 px-1 py-1">İptal</button>
+                    </div>
+                  ) : (
+                    <div key={area.id} className="flex items-center px-4 py-3 border-b border-gray-100 last:border-0">
+                      <span className="flex-1 text-sm text-gray-800">{area.name}</span>
+                      <button
+                        onClick={() => { setMobileEditingAreaId(area.id); setMobileEditAreaName(area.name); }}
+                        className="text-xs text-gray-400 hover:text-gray-700 px-2 py-1"
+                      >
+                        Adlandır
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!window.confirm(`"${area.name}" silinsin mi?`)) return;
+                          actions.deleteArea(area.id);
+                        }}
+                        className="text-xs text-red-400 hover:text-red-600 px-2 py-1"
+                      >
+                        Sil
+                      </button>
+                    </div>
+                  )
+                )}
+              </section>
+
+              {/* Düzenleme Modu */}
+              <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <h2 className="font-semibold text-sm text-gray-900">Düzenleme</h2>
+                </div>
+                <div className="px-4 py-3 flex flex-col gap-2">
+                  {state.layoutUnlocked ? (
+                    <button
+                      onClick={() => { actions.setLayoutUnlocked(false); if (state.targetMode === "default") { actions.setTargetMode("day"); } }}
+                      className="w-full py-2.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+                    >
+                      Düzenlemeyi Bitir
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => { actions.setTargetMode("day"); actions.setLayoutUnlocked(true); setMobileTab("plan"); }}
+                        className="w-full py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+                      >
+                        Bugün için düzenle
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!window.confirm("Genel düzeni değiştirmek tüm günleri etkiler.\nDevam etmek istiyor musunuz?")) return;
+                          actions.setTargetMode("default");
+                          actions.setLayoutUnlocked(true);
+                          setMobileTab("plan");
+                        }}
+                        className="w-full py-2.5 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium transition-colors"
+                      >
+                        Genel düzeni düzenle
+                      </button>
+                    </>
+                  )}
+                </div>
+              </section>
+
+              {/* Hesap */}
+              <section className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <h2 className="font-semibold text-sm text-gray-900">Hesap</h2>
+                </div>
+                <div className="px-4 py-3">
+                  <p className="text-sm text-gray-500">{userEmail}</p>
+                </div>
+                <div className="px-4 pb-4">
+                  <button
+                    onClick={onSignOut}
+                    className="w-full py-2.5 rounded-lg border border-red-200 text-red-600 hover:bg-red-50 text-sm font-medium transition-colors"
+                  >
+                    Çıkış Yap
+                  </button>
+                </div>
+              </section>
+
+            </div>
+          </div>
+        )}
+
       </div>
+
+      {/* FAB: mobil Plan sekmesinde, düzenleme modundayken */}
+      {mobileTab === "plan" && state.layoutUnlocked && (
+        <button
+          className="md:hidden fixed z-30 w-14 h-14 rounded-full bg-indigo-600 hover:bg-indigo-700 text-white shadow-lg flex items-center justify-center transition-colors"
+          style={{ bottom: 72, right: 16 }}
+          onClick={() => setFabOpen(true)}
+          aria-label="Eleman ekle"
+        >
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round">
+            <line x1="12" y1="4" x2="12" y2="20" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+          </svg>
+        </button>
+      )}
+
+      {/* FAB bottom sheet */}
+      {fabOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40"
+          style={{ background: "rgba(0,0,0,0.4)" }}
+          onClick={() => setFabOpen(false)}
+        >
+          <div
+            className="absolute left-0 right-0 bottom-14 bg-white rounded-t-2xl shadow-xl overflow-y-auto"
+            style={{ maxHeight: "70vh" }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="p-4">
+              <div className="w-10 h-1 bg-gray-200 rounded-full mx-auto mb-4" />
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Masalar</p>
+              <div className="grid grid-cols-5 gap-2 mb-5">
+                {tableItems.map((item) => (
+                  <button
+                    key={item.shape}
+                    onClick={() => { handleQuickAddTable(item.shape); setFabOpen(false); }}
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-100 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                  >
+                    <ShapeIcon shape={item.shape} />
+                    <span className="text-xs text-gray-600 leading-tight">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Dekorasyon</p>
+              <div className="grid grid-cols-5 gap-2">
+                {fixtureItems.map((item) => (
+                  <button
+                    key={item.kind}
+                    onClick={() => { handleQuickAddFixture(item.kind); setFabOpen(false); }}
+                    className="flex flex-col items-center gap-1 p-2 rounded-xl border border-gray-100 hover:bg-indigo-50 hover:border-indigo-200 transition-colors"
+                  >
+                    <FixtureIcon kind={item.kind} />
+                    <span className="text-xs text-gray-600 leading-tight">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Mobil alt tab bar */}
+      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 h-14 bg-white border-t border-gray-200 flex items-center justify-around">
+        <button
+          onClick={() => setMobileTab("plan")}
+          className={`flex flex-col items-center gap-0.5 px-5 py-1 ${mobileTab === "plan" ? "text-indigo-600" : "text-gray-400"}`}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="3" width="7" height="7" rx="1" />
+            <rect x="14" y="3" width="7" height="7" rx="1" />
+            <rect x="3" y="14" width="7" height="7" rx="1" />
+            <rect x="14" y="14" width="7" height="7" rx="1" />
+          </svg>
+          <span className="text-[10px] font-medium leading-none">Plan</span>
+        </button>
+        <button
+          onClick={() => setMobileTab("reservations")}
+          className={`flex flex-col items-center gap-0.5 px-5 py-1 ${mobileTab === "reservations" ? "text-indigo-600" : "text-gray-400"}`}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="4" y1="7" x2="20" y2="7" />
+            <line x1="4" y1="12" x2="20" y2="12" />
+            <line x1="4" y1="17" x2="14" y2="17" />
+          </svg>
+          <span className="text-[10px] font-medium leading-none">Rezervasyonlar</span>
+        </button>
+        <button
+          onClick={() => setMobileTab("settings")}
+          className={`flex flex-col items-center gap-0.5 px-5 py-1 ${mobileTab === "settings" ? "text-indigo-600" : "text-gray-400"}`}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z" />
+          </svg>
+          <span className="text-[10px] font-medium leading-none">Ayarlar</span>
+        </button>
+      </nav>
+
+      {/* ── Masa silme onay modalı ───────────────────────────────────────── */}
+      {pendingTableDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-2xl shadow-xl p-6 w-80 max-w-[calc(100vw-2rem)]">
+            <h3 className="text-base font-bold text-gray-900 mb-1">Masayı Sil</h3>
+            <p className="text-sm text-gray-500 mb-5">
+              Bu masada aktif bir rezervasyon var. Ne yapmak istersiniz?
+            </p>
+            <div className="flex flex-col gap-2">
+              <button
+                className="py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors"
+                onClick={() => {
+                  actions.deleteTable(pendingTableDelete.areaId, pendingTableDelete.tableId, state.targetMode);
+                  setPendingTableDelete(null);
+                }}
+              >
+                Sadece Masayı Sil
+              </button>
+              <button
+                className="py-2.5 rounded-lg bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors"
+                onClick={() => {
+                  if (pendingTableDelete.reservationId) {
+                    actions.deleteReservation(pendingTableDelete.reservationId);
+                  }
+                  actions.deleteTable(pendingTableDelete.areaId, pendingTableDelete.tableId, state.targetMode);
+                  setPendingTableDelete(null);
+                }}
+              >
+                Masa ve Rezervasyonu Sil
+              </button>
+              <button
+                className="py-2.5 rounded-lg border border-gray-200 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
+                onClick={() => setPendingTableDelete(null)}
+              >
+                İptal
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -986,6 +1450,84 @@ function focusReservation(
     actions.selectTable(reservation.ownerId || reservation.tableIds[0] || null);
   }
   actions.cancelReservationIntent();
+}
+
+// ─── TableInfoCard ───────────────────────────────────────────────────────────
+
+const STATUS_LABEL: Record<string, string> = {
+  reserved: "Rezerve",
+  arrived: "Geldi",
+  cancelled: "İptal",
+  no_show: "Gelmedi",
+};
+const STATUS_COLOR: Record<string, string> = {
+  reserved: "bg-indigo-100 text-indigo-700",
+  arrived:  "bg-emerald-100 text-emerald-700",
+  cancelled:"bg-gray-100 text-gray-500",
+  no_show:  "bg-red-100 text-red-600",
+};
+
+function TableInfoCard({
+  label,
+  reservation,
+  position,
+  onClose,
+  onOpenReservation,
+}: {
+  label: string;
+  reservation: import("./types").Reservation | null;
+  position: { left: number; top: number };
+  onClose: () => void;
+  onOpenReservation: () => void;
+}) {
+  return (
+    <div
+      style={{ position: "absolute", left: position.left, top: position.top, zIndex: 30, width: 224 }}
+      className="bg-white border border-gray-200 rounded-xl shadow-lg p-3"
+      onClick={(e) => e.stopPropagation()}
+    >
+      {/* Header */}
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">{label}</span>
+        <button
+          className="w-5 h-5 flex items-center justify-center rounded text-gray-400 hover:text-gray-600 hover:bg-gray-100"
+          onClick={onClose}
+          aria-label="Kapat"
+        >
+          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+            <line x1="1" y1="1" x2="9" y2="9" /><line x1="9" y1="1" x2="1" y2="9" />
+          </svg>
+        </button>
+      </div>
+
+      {reservation ? (
+        <div>
+          <p className="font-semibold text-gray-900 text-sm leading-tight mb-1">{reservation.guestName}</p>
+          <div className="flex items-center gap-2 text-xs text-gray-500 mb-2">
+            <span>{reservation.time.slice(0, 5)}</span>
+            <span>·</span>
+            <span>{reservation.guestCount} kişi</span>
+          </div>
+          <span className={`inline-block text-[10px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLOR[reservation.status] ?? "bg-gray-100 text-gray-500"}`}>
+            {STATUS_LABEL[reservation.status] ?? reservation.status}
+          </span>
+          {reservation.notes && (
+            <p className="mt-2 text-xs text-gray-400 italic leading-snug line-clamp-2">{reservation.notes}</p>
+          )}
+        </div>
+      ) : (
+        <div className="flex flex-col items-center gap-2 py-1">
+          <p className="text-xs text-gray-400">Bu masada rezervasyon yok</p>
+          <button
+            className="w-full text-center text-xs font-semibold text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg px-3 py-1.5 transition-colors"
+            onClick={onOpenReservation}
+          >
+            Rezervasyon Ekle
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function resolveContextLayout(

@@ -1,5 +1,64 @@
-﻿import { type CSSProperties, type PointerEvent } from "react";
+import { useMemo, type CSSProperties, type PointerEvent } from "react";
 import { type EffectiveTable, type TableVisualState } from "../types";
+
+// ─── Chair geometry ────────────────────────────────────────────────────────────
+const CHAIR_R   = 4;  // sandalye yarıçapı (px)
+const CHAIR_GAP = 4;  // masa kenarı ile sandalye merkezi arası boşluk
+const CHAIR_OFF = CHAIR_R + CHAIR_GAP; // = 8 px
+
+interface ChairPos { cx: number; cy: number; }
+
+/**
+ * Masanın şekli ve boyutuna göre sandalye merkezlerini döner.
+ * Koordinatlar table-token sol-üst köşesine göredir (negatif = masanın dışı).
+ */
+function getChairPositions(
+  shape: EffectiveTable["shape"],
+  w: number,
+  h: number,
+  capacity: number
+): ChairPos[] {
+  const cap = Math.max(1, Math.min(capacity, 8));
+
+  if (shape === "round") {
+    const rx = w / 2 + CHAIR_OFF;
+    const ry = h / 2 + CHAIR_OFF;
+    return Array.from({ length: cap }, (_, i) => {
+      const angle = (Math.PI * 2 * i) / cap - Math.PI / 2;
+      return { cx: w / 2 + rx * Math.cos(angle), cy: h / 2 + ry * Math.sin(angle) };
+    });
+  }
+
+  if (shape === "booth") {
+    const count = Math.min(cap, 5);
+    const spacing = w / (count + 1);
+    return Array.from({ length: count }, (_, i) => ({
+      cx: spacing * (i + 1),
+      cy: h + CHAIR_OFF
+    }));
+  }
+
+  if (shape === "bar") {
+    const count = Math.min(cap, 6);
+    const spacing = w / (count + 1);
+    return Array.from({ length: count }, (_, i) => ({
+      cx: spacing * (i + 1),
+      cy: -CHAIR_OFF
+    }));
+  }
+
+  // Rectangle / Square
+  const topCount = Math.ceil(cap / 2);
+  const botCount = cap - topCount;
+  const positions: ChairPos[] = [];
+  const topSpacing = w / (topCount + 1);
+  for (let i = 0; i < topCount; i++) positions.push({ cx: topSpacing * (i + 1), cy: -CHAIR_OFF });
+  const botSpacing = w / (botCount + 1);
+  for (let i = 0; i < botCount; i++) positions.push({ cx: botSpacing * (i + 1), cy: h + CHAIR_OFF });
+  return positions;
+}
+
+// ─── Component ─────────────────────────────────────────────────────────────────
 
 interface TableNodeProps {
   table: EffectiveTable;
@@ -12,9 +71,12 @@ interface TableNodeProps {
   mergeBase: boolean;
   isAddedByOverride?: boolean;
   warningText?: string;
+  /** "guestCount/capacity" string e.g. "2/4" */
   occupancyLabel: string;
   showResizeHandle: boolean;
+  showRotateButton: boolean;
   onSelect: () => void;
+  onRotate: () => void;
   onMovePointerDown?: (event: PointerEvent<HTMLDivElement>) => void;
   onResizePointerDown?: (event: PointerEvent<HTMLButtonElement>) => void;
 }
@@ -32,118 +94,118 @@ export function TableNode({
   warningText,
   occupancyLabel,
   showResizeHandle,
+  showRotateButton,
   onSelect,
+  onRotate,
   onMovePointerDown,
   onResizePointerDown
 }: TableNodeProps) {
+  // Parse "2/4" → guestCount = 2, labelCapacity = 4
+  // labelCapacity may differ from table.capacity when the table belongs to a merged group
+  // (the label then reflects the group's total capacity, not this single table's capacity)
+  const parts = occupancyLabel.split("/");
+  const guestCount = parseInt(parts[0] ?? "0", 10) || 0;
+  const labelCapacity = parseInt(parts[1] ?? "0", 10) || table.capacity;
+  const rotation = table.rotation ?? 0;
+
+  // Chair positions — memoized on shape/size/capacity
+  const chairs = useMemo(
+    () => getChairPositions(table.shape, table.width, table.height, table.capacity),
+    [table.shape, table.width, table.height, table.capacity]
+  );
+
+  // Badge variant — compare against labelCapacity (group total when in a merged group)
+  const badgeClass = (() => {
+    if (guestCount <= 0) return "table-cap-badge";
+    if (guestCount > labelCapacity) return "table-cap-badge table-cap-badge--over";   // aşım → kırmızı
+    if (guestCount === labelCapacity) return "table-cap-badge table-cap-badge--full";  // tam dolu → yeşil
+    return "table-cap-badge table-cap-badge--partial";                                  // kısmen dolu → yeşil
+  })();
+
   const style: CSSProperties = {
     left: table.x,
     top: table.y,
     width: table.width,
-    height: table.height
+    height: table.height,
+    transform: `rotate(${rotation}deg)`,
+    transition: "transform 200ms ease"
   };
 
-  const minSide = Math.min(table.width, table.height);
-  const isCompact = minSide < 76 || table.width < 96;
-  const isTiny = minSide < 62 || table.width < 76;
-  const chairCount = resolveChairCount(table.capacity, isTiny);
-  const chairs = buildChairMarkers(chairCount, table.shape, isTiny ? 30 : 36);
+  const className = [
+    "table-token",
+    `table-token--${table.shape}`,
+    `table-token--${visualState}`,
+    selected        ? "is-selected"        : "",
+    highlighted     ? "is-highlighted"     : "",
+    multiSelected   ? "is-multi-selected"  : "",
+    mergeSelectable ? "is-merge-selectable": "",
+    (mergeSelected || mergeBase) ? "is-merge-selected" : ""
+  ].filter(Boolean).join(" ");
 
   return (
     <div
-      className={[
-        "table-token",
-        `table-token--${table.shape}`,
-        `table-token--${visualState}`,
-        isCompact ? "is-compact" : "",
-        isTiny ? "is-tiny" : "",
-        selected ? "is-selected" : "",
-        highlighted ? "is-highlighted" : "",
-        multiSelected ? "is-multi-selected" : "",
-        mergeSelectable ? "is-merge-selectable" : "",
-        mergeSelected ? "is-merge-selected" : "",
-        mergeBase ? "is-merge-base" : ""
-      ]
-        .filter(Boolean)
-        .join(" ")}
+      className={className}
       style={style}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSelect();
-      }}
+      onClick={(e) => { e.stopPropagation(); onSelect(); }}
       onPointerDown={onMovePointerDown}
       title={`${table.label} | ${occupancyLabel}${warningText ? ` | ${warningText}` : ""}`}
     >
-      <div className="table-token__title">
-        <strong>{table.label}</strong>
-      </div>
-
-      <div className="table-token__seats" aria-hidden="true">
-        {chairs.map((marker, index) => (
-          <span
-            key={index}
-            className="table-token__chair"
-            style={{ left: `${marker.x}%`, top: `${marker.y}%` }}
+      {/* Sandalyeler — masanın dışına overflow:visible ile taşar */}
+      {chairs.map((pos, i) => {
+        const occupied = i < guestCount;
+        return (
+          <div
+            key={i}
+            className={`table-chair${occupied ? "" : " table-chair--empty"}`}
+            style={{ left: pos.cx - CHAIR_R, top: pos.cy - CHAIR_R }}
+            aria-hidden="true"
           />
-        ))}
-      </div>
+        );
+      })}
 
-      <div className={`table-token__capacity ${warningText ? "is-warning" : ""} ${isTiny ? "is-outside" : ""}`}>
-        <strong>{occupancyLabel}</strong>
-      </div>
+      {/* Blocked çapraz çizgi overlay */}
+      {visualState === "blocked" && (
+        <div className="table-blocked-overlay" aria-hidden="true" />
+      )}
 
+      {/* Masa etiketi */}
+      <span className="table-label">{table.label}</span>
+
+      {/* Kapasite badge (sağ alt köşe) */}
+      <span className={`${badgeClass}${warningText ? " is-warning" : ""}`}>
+        {occupancyLabel}
+      </span>
+
+      {/* Uyarı ikonu */}
       {warningText ? (
-        <span className="table-token__alert" title={warningText} aria-label={warningText}>
-          !
-        </span>
+        <span className="table-token__alert" title={warningText} aria-label={warningText}>!</span>
       ) : null}
 
+      {/* Override badge */}
       {isAddedByOverride ? (
         <span className="table-token__override-badge" title="Bu masa bu güne özel eklendi">+</span>
       ) : null}
 
+      {/* Döndürme butonu — düzenleme modunda, seçili masada */}
+      {showRotateButton && (
+        <button
+          className="table-token__rotate"
+          title="90° döndür"
+          onClick={(e) => { e.stopPropagation(); onRotate(); }}
+          onPointerDown={(e) => e.stopPropagation()}
+          style={{ transform: `translateX(-50%) rotate(${-rotation}deg)` }}
+        >
+          ↻
+        </button>
+      )}
+
+      {/* Resize tutacağı */}
       {showResizeHandle ? (
         <button
           className="table-token__resize"
-          onPointerDown={(event) => {
-            event.stopPropagation();
-            onResizePointerDown?.(event);
-          }}
+          onPointerDown={(e) => { e.stopPropagation(); onResizePointerDown?.(e); }}
         />
       ) : null}
     </div>
   );
-}
-
-function resolveChairCount(capacity: number, isTiny: boolean): number {
-  const base = capacity <= 2 ? 2 : capacity <= 4 ? 4 : capacity <= 6 ? 6 : 8;
-  if (!isTiny) return base;
-  return Math.max(2, Math.min(4, base));
-}
-
-function buildChairMarkers(count: number, shape: EffectiveTable["shape"], radius: number): Array<{ x: number; y: number }> {
-  if (shape === "bar") {
-    return Array.from({ length: Math.min(count, 4) }, (_, index) => ({
-      x: 26 + index * 16,
-      y: index % 2 === 0 ? 20 : 80
-    }));
-  }
-
-  const chairCount = Math.max(2, Math.min(count, 8));
-  if (shape === "round") {
-    return Array.from({ length: chairCount }, (_, index) => {
-      const angle = (Math.PI * 2 * index) / chairCount - Math.PI / 2;
-      return { x: 50 + Math.cos(angle) * radius, y: 50 + Math.sin(angle) * radius };
-    });
-  }
-
-  return Array.from({ length: chairCount }, (_, index) => {
-    const side = index % 4;
-    const lane = Math.floor(index / 4);
-    const offset = 28 + lane * 18;
-    if (side === 0) return { x: 50 - offset / 2, y: 8 };
-    if (side === 1) return { x: 92, y: 50 - offset / 2 };
-    if (side === 2) return { x: 50 + offset / 2, y: 92 };
-    return { x: 8, y: 50 + offset / 2 };
-  });
 }

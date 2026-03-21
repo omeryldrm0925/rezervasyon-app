@@ -21,13 +21,14 @@ export function GroupEditorCard({ group, targetMode, position, onRenameGroup }: 
         </div>
       </header>
 
-      <form className="table-card__form">
+      <form className="table-card__form" onSubmit={(e) => e.preventDefault()}>
         <label>
           Grup Adı
           <input
             className="input input--compact"
             value={group.name}
             onChange={(event) => onRenameGroup(event.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); e.stopPropagation(); } }}
             maxLength={32}
           />
         </label>

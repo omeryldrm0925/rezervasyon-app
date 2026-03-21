@@ -12,6 +12,73 @@ import {
   type TableVisualState
 } from "../types";
 
+// ─── Per-kind fixture visual content ───────────────────────────────────────
+function FixtureContent({ kind, label }: { kind: FixtureKind; label?: string }) {
+  switch (kind) {
+    case "door":
+      return (
+        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" style={{ width: "100%", height: "80%" }}>
+          {/* vertical wall line at hinge */}
+          <line x1="5" y1="5" x2="5" y2="27" stroke="#92400e" strokeWidth="2.5" strokeLinecap="round" />
+          {/* door panel */}
+          <line x1="5" y1="5" x2="25" y2="5" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
+          {/* quarter-circle swing arc: hinge at (5,5), radius 20 */}
+          <path d="M25 5 A20 20 0 0 1 5 25" fill="none" stroke="#d97706" strokeWidth="1.5" strokeLinecap="round" />
+        </svg>
+      );
+    case "tree":
+      return (
+        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
+          <circle cx="12" cy="10" r="7" fill="#34d399" />
+          <rect x="10.5" y="17" width="3" height="4" rx="1" fill="#78350f" />
+        </svg>
+      );
+    case "pool":
+      return <span style={{ fontSize: 9, letterSpacing: ".04em" }}>{label ?? "HAVUZ"}</span>;
+    case "restroom":
+      return (
+        <svg viewBox="0 0 20 20" width="18" height="18" aria-hidden="true">
+          {/* person icon */}
+          <circle cx="7" cy="4" r="2" fill="currentColor" />
+          <path d="M4 8h6v5H8v4H6v-4H4z" fill="currentColor" />
+          <circle cx="14" cy="4" r="2" fill="currentColor" />
+          <path d="M11.5 8h5l-1.5 4h-1v4h-2v-4h-1z" fill="currentColor" />
+        </svg>
+      );
+    case "cashier":
+      return (
+        <svg viewBox="0 0 24 20" width="20" height="16" aria-hidden="true">
+          <rect x="2" y="2" width="20" height="14" rx="2" fill="currentColor" opacity=".25" stroke="currentColor" strokeWidth="1.5" />
+          <rect x="6" y="6" width="4" height="3" rx="1" fill="currentColor" opacity=".6" />
+          <rect x="14" y="6" width="4" height="6" rx="1" fill="currentColor" opacity=".6" />
+          <rect x="6" y="11" width="7" height="2" rx="1" fill="currentColor" opacity=".4" />
+        </svg>
+      );
+    case "stairs":
+      return (
+        <svg viewBox="0 0 32 28" width="28" height="22" aria-hidden="true" style={{ width: "100%", height: "70%" }}>
+          <path d="M2 26 L2 18 L10 18 L10 12 L18 12 L18 6 L26 6 L26 2 L30 2 L30 26 Z"
+            fill="currentColor" opacity=".2" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="2" y1="18" x2="10" y2="18" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="10" y1="12" x2="18" y2="12" stroke="currentColor" strokeWidth="1.5" />
+          <line x1="18" y1="6" x2="26" y2="6" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      );
+    case "pillar":
+      return (
+        <svg viewBox="0 0 20 20" width="16" height="16" aria-hidden="true">
+          <circle cx="10" cy="10" r="8" fill="currentColor" opacity=".3" stroke="currentColor" strokeWidth="1.5" />
+        </svg>
+      );
+    case "wall":
+      return null; // wall is just a colored bar, no label needed
+    case "bar_counter":
+      return <span style={{ fontSize: 9, letterSpacing: ".04em" }}>{label ?? "BAR"}</span>;
+    default:
+      return <span>{label ?? kind}</span>;
+  }
+}
+
 interface FloorCanvasProps {
   tables: EffectiveTable[];
   fixtures: EffectiveFixture[];
@@ -34,7 +101,7 @@ interface FloorCanvasProps {
   onAddFixture: (fixtureKind: FixtureKind, x: number, y: number) => void;
   onUpdateTable: (
     tableId: string,
-    patch: Partial<Pick<EffectiveTable, "x" | "y" | "width" | "height">>
+    patch: Partial<Pick<EffectiveTable, "x" | "y" | "width" | "height" | "rotation">>
   ) => void;
   onUpdateFixture: (
     fixtureId: string,
@@ -95,7 +162,7 @@ type DragState =
       originY: number;
       originWidth: number;
       originHeight: number;
-      resizeAxis?: "x" | "y" | "xy";
+      resizeHandle?: "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
     }
   | {
       type: "multi-move";
@@ -169,9 +236,11 @@ export function FloorCanvas({
   const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
   const [dropActive, setDropActive] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [viewportSize, setViewportSize] = useState({ width: 1200, height: 680 });
+  const [viewportSize, setViewportSize] = useState({ width: 800, height: 600 });
   const [scrollState, setScrollState] = useState({ left: 0, top: 0 });
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const pointerClientRef = useRef<{ x: number; y: number } | null>(null);
+  const edgeScrollFrameRef = useRef<number | null>(null);
 
   // Multi-select state
   const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
@@ -257,8 +326,8 @@ export function FloorCanvas({
     const maxGroupY = renderedGroups.reduce((max, group) => Math.max(max, group.frame.y + group.frame.height), 0);
 
     return {
-      width: Math.max(1200, viewportSize.width, snapExtent(Math.max(maxTableX, maxFixtureX, maxGroupX) + 220)),
-      height: Math.max(680, viewportSize.height, snapExtent(Math.max(maxTableY, maxFixtureY, maxGroupY) + 220))
+      width: Math.max(viewportSize.width, snapExtent(Math.max(maxTableX, maxFixtureX, maxGroupX) + 220)),
+      height: Math.max(viewportSize.height, snapExtent(Math.max(maxTableY, maxFixtureY, maxGroupY) + 220))
     };
   }, [fixtures, renderedGroups, tables, viewportSize.height, viewportSize.width]);
 
@@ -373,7 +442,27 @@ export function FloorCanvas({
   useEffect(() => {
     if (!dragState || !layoutUnlocked) return;
 
+    // Edge-scroll loop: auto-scroll viewport when pointer is near edges during drag
+    const EDGE = 50;
+    const SPEED = 10;
+    function edgeScrollLoop() {
+      const node = viewportRef.current;
+      const pos = pointerClientRef.current;
+      if (!node || !pos) { edgeScrollFrameRef.current = null; return; }
+      const rect = node.getBoundingClientRect();
+      let dx = 0, dy = 0;
+      if (pos.x < rect.left + EDGE)   dx = -SPEED * (1 - (pos.x - rect.left) / EDGE);
+      if (pos.x > rect.right - EDGE)  dx =  SPEED * (1 - (rect.right - pos.x) / EDGE);
+      if (pos.y < rect.top + EDGE)    dy = -SPEED * (1 - (pos.y - rect.top) / EDGE);
+      if (pos.y > rect.bottom - EDGE) dy =  SPEED * (1 - (rect.bottom - pos.y) / EDGE);
+      if (dx !== 0) node.scrollLeft = clamp(node.scrollLeft + dx, 0, node.scrollWidth - node.clientWidth);
+      if (dy !== 0) node.scrollTop  = clamp(node.scrollTop  + dy, 0, node.scrollHeight - node.clientHeight);
+      edgeScrollFrameRef.current = requestAnimationFrame(edgeScrollLoop);
+    }
+    edgeScrollFrameRef.current = requestAnimationFrame(edgeScrollLoop);
+
     const onPointerMove = (event: PointerEvent) => {
+      pointerClientRef.current = { x: event.clientX, y: event.clientY };
       const pointer = toCanvasPoint(event.clientX, event.clientY);
       if (!pointer) return;
 
@@ -411,13 +500,25 @@ export function FloorCanvas({
           return;
         }
 
+        const handle = dragState.resizeHandle ?? "se";
         const minWidth = dragState.originWidth <= 24 ? 24 : 36;
         const minHeight = dragState.originHeight <= 12 ? 12 : 10;
-        const rawWidth = dragState.resizeAxis === "y" ? dragState.originWidth : dragState.originWidth + dx;
-        const rawHeight = dragState.resizeAxis === "x" ? dragState.originHeight : dragState.originHeight + dy;
-        const width = clamp(snap(rawWidth), minWidth, stageSize.width - dragState.originX);
-        const height = clamp(snap(rawHeight), minHeight, stageSize.height - dragState.originY);
-        onUpdateFixture(dragState.objectId, { width, height });
+        let rawWidth = dragState.originWidth;
+        let rawHeight = dragState.originHeight;
+        if (handle === "e" || handle === "se" || handle === "ne") rawWidth += dx;
+        if (handle === "w" || handle === "sw" || handle === "nw") rawWidth -= dx;
+        if (handle === "s" || handle === "se" || handle === "sw") rawHeight += dy;
+        if (handle === "n" || handle === "ne" || handle === "nw") rawHeight -= dy;
+        const width = clamp(snap(rawWidth), minWidth, stageSize.width);
+        const height = clamp(snap(rawHeight), minHeight, stageSize.height);
+        const fixturePatch: Partial<Pick<EffectiveFixture, "x" | "y" | "width" | "height" | "rotation">> = { width, height };
+        if (handle === "w" || handle === "sw" || handle === "nw") {
+          fixturePatch.x = clamp(dragState.originX + dragState.originWidth - width, 0, stageSize.width - width);
+        }
+        if (handle === "n" || handle === "ne" || handle === "nw") {
+          fixturePatch.y = clamp(dragState.originY + dragState.originHeight - height, 0, stageSize.height - height);
+        }
+        onUpdateFixture(dragState.objectId, fixturePatch);
         setGuides({ x: null, y: null });
         return;
       }
@@ -475,6 +576,8 @@ export function FloorCanvas({
     };
 
     const onPointerUp = () => {
+      if (edgeScrollFrameRef.current !== null) { cancelAnimationFrame(edgeScrollFrameRef.current); edgeScrollFrameRef.current = null; }
+      pointerClientRef.current = null;
       setDragState(null);
       setGuides({ x: null, y: null });
     };
@@ -484,6 +587,8 @@ export function FloorCanvas({
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
+      if (edgeScrollFrameRef.current !== null) { cancelAnimationFrame(edgeScrollFrameRef.current); edgeScrollFrameRef.current = null; }
+      pointerClientRef.current = null;
     };
   }, [dragState, layoutUnlocked, occupiedFrames, onUpdateFixture, onUpdateMergedGroupLayout, onUpdateTable, renderedGroups, stageSize.height, stageSize.width, zoom, snap, clamp]);
 
@@ -517,7 +622,7 @@ export function FloorCanvas({
   };
 
   return (
-    <section className={`canvas-shell ${dropActive ? "is-drop-active" : ""}`} onClick={onClearSelection}>
+    <section className={`canvas-shell${dropActive ? " is-drop-active" : ""}${layoutUnlocked ? " is-editing" : ""}`} onClick={onClearSelection}>
       <div
         className="canvas-shell__viewport"
         ref={viewportRef}
@@ -665,11 +770,12 @@ export function FloorCanvas({
                         }
                       : undefined
                   }
-                  title={fixture.label ?? (fixture.kind === "door" ? "Kapı" : "Pencere")}
+                  title={fixture.label ?? fixture.kind}
                 >
-                  <span>{fixture.kind === "door" ? "Kapı" : "Pencere"}</span>
+                  <FixtureContent kind={fixture.kind} label={fixture.label} />
                   {layoutUnlocked && isSelected ? (
                     <>
+                      {/* Delete button — top-left outside */}
                       <button
                         className="fixture-token__delete"
                         title="Sil"
@@ -680,81 +786,45 @@ export function FloorCanvas({
                       >
                         ×
                       </button>
+                      {/* Rotate button — top-center outside, counter-rotated so always upright */}
                       <button
-                        className="fixture-token__rotate"
+                        className="fixture-token__rotate-btn"
+                        title="90° döndür"
                         onClick={(event) => {
                           event.stopPropagation();
                           onUpdateFixture(fixture.id, { rotation: (fixture.rotation + 90) % 360 });
                         }}
+                        onPointerDown={(e) => e.stopPropagation()}
+                        style={{ transform: `translateX(-50%) rotate(${-fixture.rotation}deg)` }}
                       >
-                        Döndür
+                        ↻
                       </button>
-                      <button
-                        className="fixture-token__resize fixture-token__resize--x"
-                        title="Yatay büyüt"
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          const pointer = toCanvasPoint(event.clientX, event.clientY);
-                          if (!pointer) return;
-                          onInteractionStart();
-                          setDragState({
-                            type: "resize",
-                            objectKind: "fixture",
-                            objectId: fixture.id,
-                            resizeAxis: "x",
-                            startX: pointer.x,
-                            startY: pointer.y,
-                            originX: fixture.x,
-                            originY: fixture.y,
-                            originWidth: fixture.width,
-                            originHeight: fixture.height
-                          });
-                        }}
-                      />
-                      <button
-                        className="fixture-token__resize fixture-token__resize--y"
-                        title="Dikey büyüt"
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          const pointer = toCanvasPoint(event.clientX, event.clientY);
-                          if (!pointer) return;
-                          onInteractionStart();
-                          setDragState({
-                            type: "resize",
-                            objectKind: "fixture",
-                            objectId: fixture.id,
-                            resizeAxis: "y",
-                            startX: pointer.x,
-                            startY: pointer.y,
-                            originX: fixture.x,
-                            originY: fixture.y,
-                            originWidth: fixture.width,
-                            originHeight: fixture.height
-                          });
-                        }}
-                      />
-                      <button
-                        className="fixture-token__resize fixture-token__resize--xy"
-                        title="Boyutlandır"
-                        onPointerDown={(event) => {
-                          event.stopPropagation();
-                          const pointer = toCanvasPoint(event.clientX, event.clientY);
-                          if (!pointer) return;
-                          onInteractionStart();
-                          setDragState({
-                            type: "resize",
-                            objectKind: "fixture",
-                            objectId: fixture.id,
-                            resizeAxis: "xy",
-                            startX: pointer.x,
-                            startY: pointer.y,
-                            originX: fixture.x,
-                            originY: fixture.y,
-                            originWidth: fixture.width,
-                            originHeight: fixture.height
-                          });
-                        }}
-                      />
+                      {/* 8 resize handles */}
+                      {(["nw", "n", "ne", "w", "e", "sw", "s", "se"] as const).map((handle) => (
+                        <button
+                          key={handle}
+                          className={`fixture-token__resize fixture-token__resize--${handle}`}
+                          title="Boyutlandır"
+                          onPointerDown={(event) => {
+                            event.stopPropagation();
+                            const pointer = toCanvasPoint(event.clientX, event.clientY);
+                            if (!pointer) return;
+                            onInteractionStart();
+                            setDragState({
+                              type: "resize",
+                              objectKind: "fixture",
+                              objectId: fixture.id,
+                              resizeHandle: handle,
+                              startX: pointer.x,
+                              startY: pointer.y,
+                              originX: fixture.x,
+                              originY: fixture.y,
+                              originWidth: fixture.width,
+                              originHeight: fixture.height
+                            });
+                          }}
+                        />
+                      ))}
                     </>
                   ) : null}
                 </div>
@@ -860,6 +930,8 @@ export function FloorCanvas({
                   warningText={warningByTable[table.id]}
                   occupancyLabel={tableBadgeById[table.id] ?? `0/${table.capacity}`}
                   showResizeHandle={layoutUnlocked && !tableInGroup}
+                  showRotateButton={!tableInGroup && (selectedObject?.kind === "table" && selectedObject.id === table.id)}
+                  onRotate={() => onUpdateTable(table.id, { rotation: ((table.rotation ?? 0) + 90) % 360 })}
                   onSelect={() => {
                     // Clear multi-select on individual click
                     if (multiSelectedIds.size > 0) {
@@ -1082,8 +1154,8 @@ function resolveMagneticMove(
   bounds: { maxX: number; maxY: number },
   targets: Frame[]
 ): { x: number; y: number; guides: GuideState } {
-  let x = clamp(snap(desiredX), 0, bounds.maxX);
-  let y = clamp(snap(desiredY), 0, bounds.maxY);
+  let x = clamp(snap(desiredX), -GRID, bounds.maxX);
+  let y = clamp(snap(desiredY), -GRID, bounds.maxY);
   let guideX: number | null = null;
   let guideY: number | null = null;
 
@@ -1131,11 +1203,11 @@ function resolveMagneticMove(
   });
 
   if (hasBestX) {
-    x = clamp(Math.round(bestXPosition), 0, bounds.maxX);
+    x = clamp(Math.round(bestXPosition), -GRID, bounds.maxX);
     guideX = Math.round(bestXGuide);
   }
   if (hasBestY) {
-    y = clamp(Math.round(bestYPosition), 0, bounds.maxY);
+    y = clamp(Math.round(bestYPosition), -GRID, bounds.maxY);
     guideY = Math.round(bestYGuide);
   }
 

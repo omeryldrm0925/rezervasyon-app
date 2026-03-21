@@ -34,6 +34,8 @@ interface ReservationSidebarProps {
   onDeleteReservation: (reservationId: string) => void;
   onSetStatus: (reservationId: string, status: Reservation["status"]) => void;
   onSignOut: () => void;
+  /** Dışarıdan override edilecek className (varsayılan: w-80 flex-shrink-0 ...) */
+  className?: string;
 }
 
 const statusConfig: Record<
@@ -75,11 +77,13 @@ export function ReservationSidebar({
   onDeleteReservation,
   onSetStatus,
   onSignOut,
+  className,
 }: ReservationSidebarProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [formState, setFormState] = useState<{
     mode: "new" | "edit";
     reservationId?: string;
+    dateISO?: string;
     draft: ReservationFormData;
   } | null>(null);
 
@@ -143,6 +147,7 @@ export function ReservationSidebar({
     setFormState({
       mode: "edit",
       reservationId: reservation.id,
+      dateISO: reservation.dateISO,
       draft: {
         guestName: reservation.guestName,
         phone: reservation.phone,
@@ -163,6 +168,32 @@ export function ReservationSidebar({
     );
   }
 
+  function isFutureDate(dateISO: string): boolean {
+    const today = new Date();
+    const [y, m, d] = dateISO.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    date.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    return date > today;
+  }
+
+  function confirmStatusChange(
+    reservation: Reservation,
+    newStatus: Reservation["status"]
+  ): boolean {
+    if (newStatus === "arrived" && isFutureDate(reservation.dateISO)) {
+      return window.confirm(
+        "Bu rezervasyon gelecek bir tarihe ait. Durumu 'Geldi' olarak işaretlemek istediğinize emin misiniz?"
+      );
+    }
+    if (newStatus === "cancelled") {
+      return window.confirm(
+        "Bu rezervasyonu iptal etmek istediğinize emin misiniz?\nİptal edilen rezervasyon listede kalır ama masa boşa düşer."
+      );
+    }
+    return true;
+  }
+
   function handleFormSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!formState) return;
@@ -181,7 +212,7 @@ export function ReservationSidebar({
   }
 
   return (
-    <aside className="w-80 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden">
+    <aside className={className ?? "w-80 flex-shrink-0 bg-white border-l border-gray-200 flex flex-col overflow-hidden"}>
       {/* ── Header ─────────────────────────────────────── */}
       <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center justify-between mb-0.5">
@@ -292,7 +323,17 @@ export function ReservationSidebar({
                 <label className="block text-xs font-medium text-gray-600 mb-1">Durum</label>
                 <select
                   value={formState.draft.status}
-                  onChange={(e) => updateDraft({ status: e.target.value as Reservation["status"] })}
+                  onChange={(e) => {
+                    const newStatus = e.target.value as Reservation["status"];
+                    const dateISO = formState.dateISO ?? activeDateISO;
+                    if (newStatus === "arrived" && isFutureDate(dateISO)) {
+                      if (!window.confirm("Bu rezervasyon gelecek bir tarihe ait. Durumu 'Geldi' olarak işaretlemek istediğinize emin misiniz?")) return;
+                    }
+                    if (newStatus === "cancelled") {
+                      if (!window.confirm("Bu rezervasyonu iptal etmek istediğinize emin misiniz?\nİptal edilen rezervasyon listede kalır ama masa boşa düşer.")) return;
+                    }
+                    updateDraft({ status: newStatus });
+                  }}
                   className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
                 >
                   <option value="reserved">Rezerve</option>
@@ -404,9 +445,9 @@ export function ReservationSidebar({
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5 mb-0.5">
                         <span className="text-sm font-bold text-gray-900 tabular-nums flex-shrink-0">
-                          {reservation.time}
+                          {reservation.time.slice(0, 5)}
                         </span>
-                        <span className="text-sm text-gray-800 truncate">{reservation.guestName}</span>
+                        <span className="text-sm font-semibold text-gray-800 truncate">{reservation.guestName}</span>
                       </div>
                       <div className="flex items-center gap-1 flex-wrap">
                         <span className="text-xs text-gray-400">{reservation.guestCount} kişi</span>
@@ -447,9 +488,11 @@ export function ReservationSidebar({
                       <div className="flex items-center gap-1.5 pt-2 flex-wrap">
                         <select
                           value={reservation.status}
-                          onChange={(e) =>
-                            onSetStatus(reservation.id, e.target.value as Reservation["status"])
-                          }
+                          onChange={(e) => {
+                            const newStatus = e.target.value as Reservation["status"];
+                            if (!confirmStatusChange(reservation, newStatus)) return;
+                            onSetStatus(reservation.id, newStatus);
+                          }}
                           onClick={(e) => e.stopPropagation()}
                           className="text-xs px-2 py-1 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
                         >

@@ -88,6 +88,23 @@ export function ObjectEditorCard({
           </label>
         </div>
 
+        {/* Rotation */}
+        <div>
+          <span className="object-editor__label">Döndür</span>
+          <div className="object-editor__rotate-row">
+            {([0, 90, 180, 270] as const).map((deg) => (
+              <button
+                key={deg}
+                type="button"
+                className={`object-editor__rotate-btn${(table.rotation ?? 0) === deg ? " is-active" : ""}`}
+                onClick={() => onUpdateTable({ rotation: deg })}
+              >
+                {deg}°
+              </button>
+            ))}
+          </div>
+        </div>
+
         {targetMode !== "default" ? (
           <label className="check-row">
             <input

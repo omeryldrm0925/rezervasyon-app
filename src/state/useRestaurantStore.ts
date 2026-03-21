@@ -45,6 +45,7 @@ type Action =
   | { type: "UPDATE_TABLE"; areaId: string; tableId: string; targetMode: TargetMode; patch: TablePatch }
   | { type: "DELETE_TABLE"; areaId: string; tableId: string; targetMode: TargetMode }
   | { type: "ADD_FIXTURE"; areaId: string; targetMode: TargetMode; fixtureKind: FixtureKind; x: number; y: number }
+  | { type: "CLONE_FIXTURE"; areaId: string; targetMode: TargetMode; source: Omit<Fixture, "id">; x: number; y: number }
   | { type: "UPDATE_FIXTURE"; areaId: string; fixtureId: string; targetMode: TargetMode; patch: FixturePatch }
   | { type: "DELETE_FIXTURE"; areaId: string; fixtureId: string; targetMode: TargetMode }
   | { type: "UPSERT_RESERVATION"; reservation: Omit<Reservation, "id"> & { id?: string } }
@@ -101,11 +102,22 @@ function buildDefaultTable(shape: TableShape, x: number, y: number): Table {
   };
 }
 
+const FIXTURE_DEFAULTS: Record<FixtureKind, { width: number; height: number; label: string }> = {
+  door:        { width: 56,  height: 16, label: "Kapı" },
+  window:      { width: 98,  height: 14, label: "Pencere" },
+  wall:        { width: 160, height: 12, label: "Duvar" },
+  tree:        { width: 48,  height: 48, label: "Bitki" },
+  pool:        { width: 120, height: 60, label: "Havuz" },
+  restroom:    { width: 40,  height: 40, label: "WC" },
+  cashier:     { width: 48,  height: 36, label: "Kasa" },
+  bar_counter: { width: 160, height: 24, label: "Bar Tezgahı" },
+  stairs:      { width: 60,  height: 48, label: "Merdiven" },
+  pillar:      { width: 24,  height: 24, label: "Kolon" },
+};
+
 function buildDefaultFixture(kind: FixtureKind, x: number, y: number): Fixture {
-  if (kind === "door") {
-    return { id: uid("fixture"), kind, x, y, width: 56, height: 16, rotation: 0, label: "Kapı" };
-  }
-  return { id: uid("fixture"), kind, x, y, width: 98, height: 14, rotation: 0, label: "Pencere" };
+  const d = FIXTURE_DEFAULTS[kind];
+  return { id: uid("fixture"), kind, x, y, width: d.width, height: d.height, rotation: 0, label: d.label };
 }
 
 function buildEmptyOverride(
@@ -319,7 +331,8 @@ function reducer(state: StoreState, action: Action): StoreState {
         areas: [...state.areas, nextArea],
         activeAreaId: nextArea.id,
         selectedObject: null,
-        interactionMode: "idle"
+        interactionMode: "idle",
+        mergeMode: emptyMergeMode()
       };
     }
     case "RENAME_AREA": {
@@ -460,6 +473,23 @@ function reducer(state: StoreState, action: Action): StoreState {
     }
     case "ADD_FIXTURE": {
       const fixture = buildDefaultFixture(action.fixtureKind, action.x, action.y);
+      const selectedObject = { kind: "fixture", id: fixture.id } as const;
+      if (action.targetMode === "default") {
+        return {
+          ...state,
+          areas: state.areas.map((area) =>
+            area.id === action.areaId ? { ...area, defaultFixtures: [...area.defaultFixtures, fixture] } : area
+          ),
+          selectedObject,
+          interactionMode: "editingObject"
+        };
+      }
+      const { override, overrides } = getOrCloneOverride(state, state.activeDateISO, action.areaId);
+      override.addedFixtures = [...override.addedFixtures, fixture];
+      return { ...state, overrides, selectedObject, interactionMode: "editingObject" };
+    }
+    case "CLONE_FIXTURE": {
+      const fixture: Fixture = { ...action.source, id: uid("fixture"), x: action.x, y: action.y };
       const selectedObject = { kind: "fixture", id: fixture.id } as const;
       if (action.targetMode === "default") {
         return {
@@ -754,6 +784,34 @@ function reducer(state: StoreState, action: Action): StoreState {
     case "RESET_DAILY_OVERRIDE": {
       const dateBucket = state.overrides[action.dateISO];
       if (!dateBucket || !dateBucket[action.areaId]) return state;
+
+      // Override'daki her birleşik grup için: o gruba bağlı rezervasyonları
+      // ilk masaya geri döndür (SPLIT_MERGED_GROUP ile aynı mantık).
+      // Aksi takdirde rezervasyonlar var olmayan bir group ID'ye işaret eder
+      // ve buildOccupancyMaps'te kapasite 0 görünür.
+      const existingOverride = dateBucket[action.areaId];
+      let reservations = state.reservations;
+      for (const group of existingOverride.mergedGroups) {
+        const fallbackTableId = group.tableIds[0] ?? null;
+        if (!fallbackTableId) continue;
+        reservations = reservations.map((reservation): Reservation => {
+          if (
+            reservation.dateISO !== action.dateISO ||
+            reservation.areaId !== action.areaId ||
+            reservation.ownerType !== "group" ||
+            reservation.ownerId !== group.id
+          ) {
+            return reservation;
+          }
+          return {
+            ...reservation,
+            ownerType: "table",
+            ownerId: fallbackTableId,
+            tableIds: [fallbackTableId]
+          };
+        });
+      }
+
       const nextDateBucket = { ...dateBucket };
       delete nextDateBucket[action.areaId];
       const overrides = { ...state.overrides };
@@ -765,6 +823,7 @@ function reducer(state: StoreState, action: Action): StoreState {
       return {
         ...state,
         overrides,
+        reservations,
         selectedObject: null,
         interactionMode: "idle",
         mergeMode: emptyMergeMode()
@@ -814,9 +873,61 @@ export function useRestaurantStore() {
     loadAllFromSupabase()
       .then((data) => {
         if (cancelled) return;
-        // dispatch ve setIsInitializing aynı callback'te → React bunları tek render'da batch'ler
-        dispatch({ type: "RESTORE_SNAPSHOT", snapshot: data });
-        if (data.areas.length === 0) {
+
+        // ── Duplicate temizliği ───────────────────────────────────────────────
+        // Eski bug (StrictMode çift-invoke): her session'da aynı isimle yeni
+        // area oluşturulabiliyordu. Artık geçersiz olan bu satırları hemen sil.
+        // Kural: her isim için en fazla masa/fixture içereni tut; diğerlerini sil.
+        const byName = new Map<string, (typeof data.areas)[0]>();
+        const orphanIds: string[] = [];
+        for (const area of data.areas) {
+          const existing = byName.get(area.name);
+          const existingScore = (existing?.defaultTables.length ?? 0) + (existing?.defaultFixtures.length ?? 0);
+          const currentScore = area.defaultTables.length + area.defaultFixtures.length;
+          if (!existing || currentScore > existingScore) {
+            if (existing) orphanIds.push(existing.id);
+            byName.set(area.name, area);
+          } else {
+            orphanIds.push(area.id);
+          }
+        }
+        if (orphanIds.length > 0) {
+          console.warn("[Rezerve] Duplicate alanlar bulundu, siliniyor:", orphanIds);
+          orphanIds.forEach((id) => deleteAreaFromDb(id).catch(console.error));
+        }
+
+        const cleanAreas = Array.from(byName.values());
+
+        // Orphan alanlar siliniyor — rezervasyonları winner alana taşı
+        // (orphan alanın ID'sini tutan rezervasyonlar, activeAreaId filtresinden düşer)
+        const orphanToWinner = new Map<string, string>();
+        for (const area of data.areas) {
+          const winner = byName.get(area.name);
+          if (winner && area.id !== winner.id) {
+            orphanToWinner.set(area.id, winner.id);
+          }
+        }
+        const cleanReservations = orphanToWinner.size > 0
+          ? data.reservations.map((r) =>
+              orphanToWinner.has(r.areaId) ? { ...r, areaId: orphanToWinner.get(r.areaId)! } : r
+            )
+          : data.reservations;
+
+        console.log(
+          "[Rezerve] Supabase'den yüklendi →",
+          cleanAreas.map((a) => `"${a.name}" (id: ${a.id}, masa: ${a.defaultTables.length})`)
+        );
+
+        // areas ve reservations birlikte tek RESTORE_SNAPSHOT'ta — ikisi ayrı dispatch edilmemeli
+        dispatch({
+          type: "RESTORE_SNAPSHOT",
+          snapshot: {
+            areas: cleanAreas,
+            reservations: cleanReservations,
+            overrides: data.overrides,
+          },
+        });
+        if (cleanAreas.length === 0) {
           dispatch({ type: "ADD_AREA", name: "Ana Salon" });
         }
         isLoadingFromSupabaseRef.current = false;
@@ -837,7 +948,7 @@ export function useRestaurantStore() {
 
   const dispatchWithHistory = useCallback((action: Action) => {
     const undoableActions = new Set([
-      "ADD_TABLE", "UPDATE_TABLE", "DELETE_TABLE", "ADD_FIXTURE", "UPDATE_FIXTURE",
+      "ADD_TABLE", "UPDATE_TABLE", "DELETE_TABLE", "ADD_FIXTURE", "CLONE_FIXTURE", "UPDATE_FIXTURE",
       "DELETE_FIXTURE", "APPLY_MERGE_MODE", "SPLIT_MERGED_GROUP", "RESET_DAILY_OVERRIDE",
       "UPSERT_RESERVATION", "DELETE_RESERVATION", "CLONE_TABLES"
     ]);
@@ -878,6 +989,8 @@ export function useRestaurantStore() {
         dispatchWithHistory({ type: "DELETE_TABLE", areaId, tableId, targetMode }),
       addFixture: (areaId: string, targetMode: TargetMode, fixtureKind: FixtureKind, x: number, y: number) =>
         dispatchWithHistory({ type: "ADD_FIXTURE", areaId, targetMode, fixtureKind, x, y }),
+      cloneFixture: (areaId: string, targetMode: TargetMode, source: Omit<Fixture, "id">, x: number, y: number) =>
+        dispatchWithHistory({ type: "CLONE_FIXTURE", areaId, targetMode, source, x, y }),
       updateFixture: (areaId: string, fixtureId: string, targetMode: TargetMode, patch: FixturePatch) =>
         dispatchWithHistory({ type: "UPDATE_FIXTURE", areaId, fixtureId, targetMode, patch }),
       deleteFixture: (areaId: string, fixtureId: string, targetMode: TargetMode) =>

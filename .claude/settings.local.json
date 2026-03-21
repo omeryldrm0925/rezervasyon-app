@@ -3,7 +3,18 @@
     "allow": [
       "Bash(npx tsc:*)",
       "Bash(npx vite:*)",
-      "Bash(npm install:*)"
+      "Bash(npm install:*)",
+      "Skill(gsd:map-codebase)",
+      "Skill(gsd:map-codebase:*)",
+      "Bash(wc -l /c/Users/omery/Desktop/rezerve/.planning/codebase/*.md)",
+      "Bash(node \"C:/Users/omery/Desktop/rezerve/.claude/get-shit-done/bin/gsd-tools.cjs\" commit \"docs: map existing codebase\" --files \".planning/codebase/STACK.md .planning/codebase/INTEGRATIONS.md .planning/codebase/ARCHITECTURE.md .planning/codebase/STRUCTURE.md .planning/codebase/CONVENTIONS.md .planning/codebase/TESTING.md .planning/codebase/CONCERNS.md\")",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(npm run:*)",
+      "WebFetch(domain:undraw.co)",
+      "WebFetch(domain:cdn.undraw.co)",
+      "Bash(xargs echo:*)",
+      "Bash(done)"
     ]
   }
 }

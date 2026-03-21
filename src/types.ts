@@ -1,5 +1,8 @@
 export type TableShape = "square" | "rectangle" | "round" | "bar" | "booth";
-export type FixtureKind = "door" | "window";
+export type FixtureKind =
+  | "door" | "window"
+  | "wall" | "tree" | "pool" | "restroom"
+  | "cashier" | "bar_counter" | "stairs" | "pillar";
 
 export type ReservationStatus = "reserved" | "arrived" | "cancelled" | "no_show";
 export type ReservationOwnerType = "table" | "group";
@@ -18,6 +21,7 @@ export interface Table {
   height: number;
   capacity: number;
   maxCapacity?: number;
+  rotation?: number; // degrees: 0 | 90 | 180 | 270
 }
 
 export interface Fixture {
@@ -52,7 +56,7 @@ export interface MergedTableGroup {
 }
 
 export type TablePatch = Partial<
-  Pick<Table, "x" | "y" | "width" | "height" | "label" | "shape" | "capacity" | "maxCapacity">
+  Pick<Table, "x" | "y" | "width" | "height" | "label" | "shape" | "capacity" | "maxCapacity" | "rotation">
 > & { blocked?: boolean };
 
 export type FixturePatch = Partial<

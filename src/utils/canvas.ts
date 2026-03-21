@@ -11,8 +11,18 @@ export function tableSize(shape: TableShape): { width: number; height: number } 
 }
 
 export function fixtureSize(kind: FixtureKind): { width: number; height: number } {
-  if (kind === "window") return { width: 98, height: 14 };
-  return { width: 56, height: 16 };
+  switch (kind) {
+    case "window":      return { width: 98,  height: 14 };
+    case "wall":        return { width: 160, height: 12 };
+    case "tree":        return { width: 48,  height: 48 };
+    case "pool":        return { width: 120, height: 60 };
+    case "restroom":    return { width: 40,  height: 40 };
+    case "cashier":     return { width: 48,  height: 36 };
+    case "bar_counter": return { width: 160, height: 24 };
+    case "stairs":      return { width: 60,  height: 48 };
+    case "pillar":      return { width: 24,  height: 24 };
+    default:            return { width: 56,  height: 16 }; // door
+  }
 }
 
 export function snap(value: number): number {

@@ -14,11 +14,20 @@ interface ReservationCardProps {
   objectLabel: string;
   defaultCapacity: number;
   reservation: Reservation | null;
+  dateISO: string;
   warningText?: string;
   position: { left: number; top: number };
   onClose: () => void;
   onSaveReservation: (values: ReservationDraft, reservationId?: string) => void;
   onDeleteReservation: (reservationId: string) => void;
+  onSetStatus?: (reservationId: string, status: Reservation["status"]) => void;
+}
+
+function isFutureDate(dateISO: string): boolean {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const [y, m, d] = dateISO.split("-").map(Number);
+  const date = new Date(y, m - 1, d); date.setHours(0, 0, 0, 0);
+  return date > today;
 }
 
 const blankDraft: ReservationDraft = {
@@ -41,11 +50,13 @@ export function ReservationCard({
   objectLabel,
   defaultCapacity,
   reservation,
+  dateISO,
   warningText,
   position,
   onClose,
   onSaveReservation,
-  onDeleteReservation
+  onDeleteReservation,
+  onSetStatus,
 }: ReservationCardProps) {
   const [draft, setDraft] = useState<ReservationDraft>(blankDraft);
 
@@ -138,7 +149,19 @@ export function ReservationCard({
           <select
             className="input input--compact"
             value={draft.status}
-            onChange={(event) => setDraft((prev) => ({ ...prev, status: event.target.value as Reservation["status"] }))}
+            onChange={(event) => {
+              const newStatus = event.target.value as Reservation["status"];
+              if (newStatus === "arrived" && isFutureDate(dateISO)) {
+                if (!window.confirm("Bu rezervasyon gelecek bir tarihe ait. Durumu 'Geldi' olarak işaretlemek istediğinize emin misiniz?")) return;
+              }
+              if (newStatus === "cancelled") {
+                if (!window.confirm("Bu rezervasyonu iptal etmek istediğinize emin misiniz?\nİptal edilen rezervasyon listede kalır ama masa boşa düşer.")) return;
+              }
+              setDraft((prev) => ({ ...prev, status: newStatus }));
+              if (reservation && onSetStatus) {
+                onSetStatus(reservation.id, newStatus);
+              }
+            }}
           >
             <option value="reserved">Rezerve</option>
             <option value="arrived">Geldi</option>

@@ -6,11 +6,12 @@ import { createRestaurant, getRestaurantForUser, setRestaurantId } from "../lib/
 interface AuthState {
   user: User | null;
   restaurantId: string | null;
+  restaurantName: string | null;
   loading: boolean;
 }
 
 export function useAuth() {
-  const [authState, setAuthState] = useState<AuthState>({ user: null, restaurantId: null, loading: true });
+  const [authState, setAuthState] = useState<AuthState>({ user: null, restaurantId: null, restaurantName: null, loading: true });
 
   useEffect(() => {
     async function handleUser(user: User) {
@@ -18,14 +19,26 @@ export function useAuth() {
         const restaurant = await getRestaurantForUser(user.id);
         if (restaurant) {
           setRestaurantId(restaurant.id);
-          setAuthState({ user, restaurantId: restaurant.id, loading: false });
+          setAuthState({ user, restaurantId: restaurant.id, restaurantName: restaurant.name, loading: false });
         } else {
-          // Kullanıcı var ama restoran yok (kayıt yarım kalmış)
-          setAuthState({ user, restaurantId: null, loading: false });
+          // OAuth kullanıcısı (Google vb.) için otomatik restoran oluştur
+          const isOAuth = user.app_metadata?.provider !== "email";
+          if (isOAuth) {
+            const name =
+              user.user_metadata?.full_name ||
+              user.user_metadata?.name ||
+              user.email?.split("@")[0] ||
+              "Restoranım";
+            const created = await createRestaurant(user.id, name);
+            setRestaurantId(created.id);
+            setAuthState({ user, restaurantId: created.id, restaurantName: created.name, loading: false });
+          } else {
+            // E-posta kullanıcısı — restoran yok (kayıt yarım kalmış)
+            setAuthState({ user, restaurantId: null, restaurantName: null, loading: false });
+          }
         }
       } catch {
-        // Restoran çekilemedi — auth yüklemeyi yine de bitir
-        setAuthState({ user, restaurantId: null, loading: false });
+        setAuthState({ user, restaurantId: null, restaurantName: null, loading: false });
       }
     }
 
@@ -35,7 +48,7 @@ export function useAuth() {
       if (session?.user) {
         handleUser(session.user);
       } else {
-        setAuthState({ user: null, restaurantId: null, loading: false });
+        setAuthState({ user: null, restaurantId: null, restaurantName: null, loading: false });
       }
     });
 
@@ -50,7 +63,7 @@ export function useAuth() {
   async function signOut() {
     localStorage.removeItem("rezerve-v1");
     await supabase.auth.signOut();
-    setAuthState({ user: null, restaurantId: null, loading: false });
+    setAuthState({ user: null, restaurantId: null, restaurantName: null, loading: false });
   }
 
   async function signUp(email: string, password: string, restaurantName: string) {
@@ -59,9 +72,17 @@ export function useAuth() {
     if (data.user) {
       const restaurant = await createRestaurant(data.user.id, restaurantName);
       setRestaurantId(restaurant.id);
-      setAuthState(prev => ({ ...prev, restaurantId: restaurant.id }));
+      setAuthState(prev => ({ ...prev, restaurantId: restaurant.id, restaurantName: restaurant.name }));
     }
   }
 
-  return { ...authState, signIn, signOut, signUp };
+  async function signInWithGoogle() {
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin + "/app" },
+    });
+    if (error) throw error;
+  }
+
+  return { ...authState, signIn, signOut, signUp, signInWithGoogle };
 }

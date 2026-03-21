@@ -101,18 +101,34 @@ export async function loadAllFromSupabase(): Promise<{
 
 // ─── Kaydet ───────────────────────────────────────────────────────────────────
 
-/** Tüm area'ları Supabase'e yazar (upsert). */
+/** Tüm area'ları Supabase'e yazar (upsert) ve state'te olmayan orphan satırları siler. */
 export async function syncAreas(areas: Area[]): Promise<void> {
-  if (!configured || areas.length === 0) return;
-  const rows = areas.map((area, i) => ({
-    id: area.id,
-    restaurant_id: currentRestaurantId,
-    name: area.name,
-    plan_data: { defaultTables: area.defaultTables, defaultFixtures: area.defaultFixtures },
-    sort_order: i
-  }));
-  const { error } = await supabase.from("areas").upsert(rows, { onConflict: "id" });
-  if (error) throw error;
+  if (!configured || !currentRestaurantId) return;
+
+  if (areas.length > 0) {
+    const rows = areas.map((area, i) => ({
+      id: area.id,
+      restaurant_id: currentRestaurantId,
+      name: area.name,
+      plan_data: { defaultTables: area.defaultTables, defaultFixtures: area.defaultFixtures },
+      sort_order: i
+    }));
+    const { error } = await supabase.from("areas").upsert(rows, { onConflict: "id" });
+    if (error) throw error;
+  }
+
+  // State'te olmayan (orphan) satırları sil — duplicate bug'ından kalan artıkları temizler
+  const keepIds = areas.map((a) => a.id);
+  if (keepIds.length > 0) {
+    await supabase
+      .from("areas")
+      .delete()
+      .eq("restaurant_id", currentRestaurantId)
+      .not("id", "in", `(${keepIds.join(",")})`);
+  } else {
+    // Hiç alan yoksa hepsini sil
+    await supabase.from("areas").delete().eq("restaurant_id", currentRestaurantId);
+  }
 }
 
 /** Tüm override'ları Supabase'e yazar (upsert). */

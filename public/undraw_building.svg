@@ -1,0 +1,164 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 560" fill="none">
+  <!-- Sky background -->
+  <rect x="0" y="0" width="800" height="560" fill="#f0f4ff" rx="16"/>
+
+  <!-- Clouds -->
+  <ellipse cx="130" cy="80" rx="55" ry="22" fill="white" opacity="0.9"/>
+  <ellipse cx="155" cy="68" rx="38" ry="28" fill="white" opacity="0.9"/>
+  <ellipse cx="100" cy="72" rx="32" ry="22" fill="white" opacity="0.9"/>
+
+  <ellipse cx="630" cy="100" rx="50" ry="20" fill="white" opacity="0.8"/>
+  <ellipse cx="655" cy="88" rx="35" ry="24" fill="white" opacity="0.8"/>
+  <ellipse cx="605" cy="93" rx="30" ry="19" fill="white" opacity="0.8"/>
+
+  <!-- Ground / pavement -->
+  <rect x="0" y="430" width="800" height="130" fill="#e5e7eb"/>
+  <rect x="0" y="428" width="800" height="6" fill="#d1d5db"/>
+
+  <!-- Sidewalk tiles -->
+  <line x1="0" y1="455" x2="800" y2="455" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="0" y1="480" x2="800" y2="480" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="80" y1="428" x2="80" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="160" y1="428" x2="160" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="240" y1="428" x2="240" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="320" y1="428" x2="320" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="400" y1="428" x2="400" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="480" y1="428" x2="480" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="560" y1="428" x2="560" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="640" y1="428" x2="640" y2="560" stroke="#d1d5db" stroke-width="1"/>
+  <line x1="720" y1="428" x2="720" y2="560" stroke="#d1d5db" stroke-width="1"/>
+
+  <!-- Small building left -->
+  <rect x="60" y="280" width="120" height="150" rx="3" fill="#e0e7ff" stroke="#c7d2fe" stroke-width="2"/>
+  <!-- Left building roof -->
+  <polygon points="48,282 192,282 180,255 60,255" fill="#c7d2fe"/>
+  <!-- Left building windows -->
+  <rect x="80" y="300" width="28" height="32" rx="2" fill="#4F46E5" opacity="0.4"/>
+  <rect x="122" y="300" width="28" height="32" rx="2" fill="#4F46E5" opacity="0.4"/>
+  <rect x="80" y="350" width="28" height="32" rx="2" fill="#4F46E5" opacity="0.6"/>
+  <rect x="122" y="350" width="28" height="32" rx="2" fill="white" opacity="0.8"/>
+  <rect x="80" y="400" width="28" height="30" rx="2" fill="#4F46E5" opacity="0.3"/>
+  <rect x="122" y="400" width="28" height="30" rx="2" fill="#4F46E5" opacity="0.5"/>
+  <!-- Door -->
+  <rect x="103" y="390" width="34" height="40" rx="2" fill="#4F46E5" opacity="0.7"/>
+  <rect x="117" y="395" width="6" height="20" rx="1" fill="white" opacity="0.5"/>
+
+  <!-- Small building right -->
+  <rect x="618" y="300" width="120" height="130" rx="3" fill="#e0e7ff" stroke="#c7d2fe" stroke-width="2"/>
+  <!-- Right building roof -->
+  <polygon points="606,302 750,302 740,275 618,275" fill="#c7d2fe"/>
+  <!-- Right building windows -->
+  <rect x="635" y="318" width="28" height="28" rx="2" fill="#4F46E5" opacity="0.5"/>
+  <rect x="677" y="318" width="28" height="28" rx="2" fill="white" opacity="0.8"/>
+  <rect x="635" y="360" width="28" height="28" rx="2" fill="#4F46E5" opacity="0.3"/>
+  <rect x="677" y="360" width="28" height="28" rx="2" fill="#4F46E5" opacity="0.6"/>
+  <!-- Door right -->
+  <rect x="653" y="390" width="34" height="40" rx="2" fill="#4F46E5" opacity="0.7"/>
+  <rect x="667" y="395" width="6" height="20" rx="1" fill="white" opacity="0.5"/>
+
+  <!-- Main restaurant building -->
+  <rect x="185" y="170" width="430" height="260" rx="6" fill="white" stroke="#c7d2fe" stroke-width="2.5"/>
+
+  <!-- Main building facade details (brick pattern suggestion) -->
+  <rect x="185" y="170" width="430" height="260" rx="6" fill="#eef2ff" stroke="#c7d2fe" stroke-width="2.5"/>
+
+  <!-- Roof / top decoration -->
+  <rect x="175" y="145" width="450" height="30" rx="4" fill="#4F46E5"/>
+  <rect x="195" y="138" width="410" height="20" rx="3" fill="#4F46E5" opacity="0.8"/>
+  <!-- Roof crenellation / parapet -->
+  <rect x="195" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+  <rect x="265" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+  <rect x="335" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+  <rect x="405" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+  <rect x="475" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+  <rect x="545" y="125" width="50" height="20" rx="2" fill="#4F46E5"/>
+
+  <!-- Restaurant sign band -->
+  <rect x="185" y="170" width="430" height="50" rx="0" fill="#4F46E5"/>
+  <text x="400" y="202" text-anchor="middle" font-family="sans-serif" font-size="22" font-weight="700" fill="white" letter-spacing="3">REZERVE</text>
+
+  <!-- Main windows row 1 -->
+  <rect x="210" y="240" width="70" height="55" rx="3" fill="#c7d2fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="245" y1="240" x2="245" y2="295" stroke="#818cf8" stroke-width="1"/>
+  <line x1="210" y1="267" x2="280" y2="267" stroke="#818cf8" stroke-width="1"/>
+  <!-- Window reflection -->
+  <line x1="215" y1="244" x2="225" y2="290" stroke="white" stroke-width="3" opacity="0.5"/>
+
+  <rect x="300" y="240" width="70" height="55" rx="3" fill="#a5b4fc" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="335" y1="240" x2="335" y2="295" stroke="#818cf8" stroke-width="1"/>
+  <line x1="300" y1="267" x2="370" y2="267" stroke="#818cf8" stroke-width="1"/>
+  <line x1="305" y1="244" x2="315" y2="290" stroke="white" stroke-width="3" opacity="0.5"/>
+
+  <rect x="430" y="240" width="70" height="55" rx="3" fill="#c7d2fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="465" y1="240" x2="465" y2="295" stroke="#818cf8" stroke-width="1"/>
+  <line x1="430" y1="267" x2="500" y2="267" stroke="#818cf8" stroke-width="1"/>
+  <line x1="435" y1="244" x2="445" y2="290" stroke="white" stroke-width="3" opacity="0.5"/>
+
+  <rect x="520" y="240" width="70" height="55" rx="3" fill="#a5b4fc" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="555" y1="240" x2="555" y2="295" stroke="#818cf8" stroke-width="1"/>
+  <line x1="520" y1="267" x2="590" y2="267" stroke="#818cf8" stroke-width="1"/>
+  <line x1="525" y1="244" x2="535" y2="290" stroke="white" stroke-width="3" opacity="0.5"/>
+
+  <!-- Main windows row 2 -->
+  <rect x="210" y="315" width="70" height="55" rx="3" fill="#ddd6fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="245" y1="315" x2="245" y2="370" stroke="#818cf8" stroke-width="1"/>
+  <line x1="210" y1="342" x2="280" y2="342" stroke="#818cf8" stroke-width="1"/>
+
+  <rect x="300" y="315" width="70" height="55" rx="3" fill="#c7d2fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="335" y1="315" x2="335" y2="370" stroke="#818cf8" stroke-width="1"/>
+  <line x1="300" y1="342" x2="370" y2="342" stroke="#818cf8" stroke-width="1"/>
+
+  <rect x="430" y="315" width="70" height="55" rx="3" fill="#ddd6fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="465" y1="315" x2="465" y2="370" stroke="#818cf8" stroke-width="1"/>
+  <line x1="430" y1="342" x2="500" y2="342" stroke="#818cf8" stroke-width="1"/>
+
+  <rect x="520" y="315" width="70" height="55" rx="3" fill="#c7d2fe" stroke="#818cf8" stroke-width="1.5"/>
+  <line x1="555" y1="315" x2="555" y2="370" stroke="#818cf8" stroke-width="1"/>
+  <line x1="520" y1="342" x2="590" y2="342" stroke="#818cf8" stroke-width="1"/>
+
+  <!-- Main entrance door (arched) -->
+  <rect x="355" y="350" width="90" height="80" rx="45 45 0 0" fill="#4F46E5" opacity="0.15" stroke="#4F46E5" stroke-width="2"/>
+  <path d="M 355 395 Q 355 350 400 350 Q 445 350 445 395" fill="#4F46E5" opacity="0.25" stroke="#4F46E5" stroke-width="2"/>
+  <!-- Door handle -->
+  <circle cx="393" cy="398" r="5" fill="#4F46E5" opacity="0.8"/>
+  <!-- Door frame steps -->
+  <rect x="348" y="425" width="104" height="5" rx="1" fill="#4F46E5" opacity="0.3"/>
+
+  <!-- Awning / canopy -->
+  <path d="M 330 350 Q 400 330 470 350" fill="#4F46E5" stroke="#4F46E5" stroke-width="2" opacity="0.7"/>
+  <!-- Awning stripes -->
+  <line x1="345" y1="349" x2="338" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="365" y1="342" x2="358" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="385" y1="337" x2="378" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="400" y1="334" x2="400" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="415" y1="337" x2="422" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="435" y1="342" x2="442" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+  <line x1="455" y1="349" x2="462" y2="355" stroke="white" stroke-width="2" opacity="0.5"/>
+
+  <!-- Potted plants / bushes at entrance -->
+  <circle cx="330" cy="430" r="22" fill="#86efac"/>
+  <circle cx="320" cy="422" r="14" fill="#4ade80"/>
+  <circle cx="338" cy="420" r="16" fill="#22c55e"/>
+  <rect x="322" y="430" width="16" height="15" rx="2" fill="#92400e"/>
+
+  <circle cx="470" cy="430" r="22" fill="#86efac"/>
+  <circle cx="462" cy="422" r="14" fill="#4ade80"/>
+  <circle cx="480" cy="420" r="16" fill="#22c55e"/>
+  <rect x="462" y="430" width="16" height="15" rx="2" fill="#92400e"/>
+
+  <!-- Street lamp left -->
+  <rect x="130" y="310" width="6" height="120" rx="3" fill="#9ca3af"/>
+  <path d="M 133 310 Q 155 290 155 310" fill="none" stroke="#9ca3af" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="155" cy="310" rx="8" ry="5" fill="#fef08a" opacity="0.9"/>
+
+  <!-- Street lamp right -->
+  <rect x="664" y="310" width="6" height="120" rx="3" fill="#9ca3af"/>
+  <path d="M 667 310 Q 645 290 645 310" fill="none" stroke="#9ca3af" stroke-width="4" stroke-linecap="round"/>
+  <ellipse cx="645" cy="310" rx="8" ry="5" fill="#fef08a" opacity="0.9"/>
+
+  <!-- Stars / sparkles in sky -->
+  <circle cx="350" cy="55" r="2.5" fill="#4F46E5" opacity="0.4"/>
+  <circle cx="420" cy="40" r="1.5" fill="#4F46E5" opacity="0.3"/>
+  <circle cx="500" cy="60" r="2" fill="#4F46E5" opacity="0.35"/>
+  <circle cx="580" cy="45" r="2.5" fill="#4F46E5" opacity="0.4"/>
+</svg>
