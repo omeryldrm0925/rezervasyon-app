@@ -372,20 +372,17 @@ function reducer(state: StoreState, action: Action): StoreState {
     }
     case "ADD_TABLE": {
       const table = buildDefaultTable(action.shape, action.x, action.y);
-      const selectedObject = { kind: "table", id: table.id } as const;
       if (action.targetMode === "default") {
         return {
           ...state,
           areas: state.areas.map((area) =>
             area.id === action.areaId ? { ...area, defaultTables: [...area.defaultTables, table] } : area
           ),
-          selectedObject,
-          interactionMode: "editingObject"
         };
       }
       const { override, overrides } = getOrCloneOverride(state, state.activeDateISO, action.areaId);
       override.addedTables = [...override.addedTables, table];
-      return { ...state, overrides, selectedObject, interactionMode: "editingObject" };
+      return { ...state, overrides };
     }
     case "UPDATE_TABLE": {
       if (action.targetMode === "default") {

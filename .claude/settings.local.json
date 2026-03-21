@@ -14,7 +14,8 @@
       "WebFetch(domain:undraw.co)",
       "WebFetch(domain:cdn.undraw.co)",
       "Bash(xargs echo:*)",
-      "Bash(done)"
+      "Bash(done)",
+      "Bash(node -e \":*)"
     ]
   }
 }

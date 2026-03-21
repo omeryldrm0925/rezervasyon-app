@@ -31,7 +31,9 @@ export function TopBar({
   overrideCountForArea
 }: TopBarProps) {
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [dropPos, setDropPos] = useState<{ top: number; right: number }>({ top: 0, right: 0 });
   const dropdownRef = useRef<HTMLDivElement | null>(null);
+  const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   // Dropdown dışına tıklayınca kapat
   useEffect(() => {
@@ -47,6 +49,14 @@ export function TopBar({
       window.removeEventListener("keydown", onKey);
     };
   }, [dropdownOpen]);
+
+  function handleToggleDropdown() {
+    if (!dropdownOpen && buttonRef.current) {
+      const rect = buttonRef.current.getBoundingClientRect();
+      setDropPos({ top: rect.bottom + 6, right: window.innerWidth - rect.right });
+    }
+    setDropdownOpen((prev) => !prev);
+  }
 
   function handleBugunIcin() {
     setDropdownOpen(false);
@@ -117,8 +127,9 @@ export function TopBar({
           ) : (
             <div className="edit-btn-wrap" ref={dropdownRef}>
               <button
+                ref={buttonRef}
                 className={`btn btn--tiny btn--soft${dropdownOpen ? " is-active" : ""}`}
-                onClick={() => setDropdownOpen((prev) => !prev)}
+                onClick={handleToggleDropdown}
                 title="Düzenleme modunu seç"
               >
                 {/* Pencil icon */}
@@ -133,32 +144,30 @@ export function TopBar({
               </button>
 
               {dropdownOpen && (
-                <div className="edit-dropdown">
+                <div className="edit-dropdown" style={{ position: "fixed", top: dropPos.top, right: dropPos.right, left: "auto" }}>
                   <button className="edit-dropdown__item" onClick={handleBugunIcin}>
                     {/* Calendar icon */}
-                    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, alignSelf: "center" }}>
                       <rect x="3" y="4" width="14" height="13" rx="2" />
                       <line x1="3" y1="8" x2="17" y2="8" />
                       <line x1="7" y1="2" x2="7" y2="6" />
                       <line x1="13" y1="2" x2="13" y2="6" />
                     </svg>
-                    <span>
+                    <span className="flex flex-col">
                       <strong>Bugün için</strong>
-                      <br />
                       <span className="edit-dropdown__sub">Sadece bu günü düzenle</span>
                     </span>
                   </button>
                   <div className="edit-dropdown__divider" />
                   <button className="edit-dropdown__item" onClick={handleGenelDuzen}>
                     {/* Layout icon */}
-                    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
+                    <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0, alignSelf: "center" }}>
                       <rect x="2" y="2" width="7" height="16" rx="1.5" />
                       <rect x="11" y="2" width="7" height="7" rx="1.5" />
                       <rect x="11" y="11" width="7" height="7" rx="1.5" />
                     </svg>
-                    <span>
+                    <span className="flex flex-col">
                       <strong>Genel Düzen</strong>
-                      <br />
                       <span className="edit-dropdown__sub">Tüm günleri etkiler</span>
                     </span>
                   </button>

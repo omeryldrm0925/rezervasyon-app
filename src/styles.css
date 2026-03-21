@@ -4,6 +4,8 @@
 @tailwind components;
 @tailwind utilities;
 
+html { font-size: 14px; }
+
 /* ─── Design tokens ───────────────────────────────────────── */
 :root {
   --bg:          #eef1f6;
@@ -76,7 +78,6 @@ body {
 /* ─── Top bar ─────────────────────────────────────────────── */
 .top-bar {
   position: relative;
-  z-index: 40;
   background: var(--nav);
   border-bottom: 1px solid var(--nav-border);
   padding: 10px 16px;
@@ -422,6 +423,27 @@ body {
   box-shadow: var(--sh-sm);
 }
 .merge-banner strong { font-weight: 700; }
+.merge-banner__btn {
+  padding: 3px 10px;
+  border-radius: var(--r-md);
+  font-size: 11px; font-weight: 600;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 100ms, opacity 100ms;
+}
+.merge-banner__btn--confirm {
+  background: rgba(217,119,6,.18);
+  border-color: rgba(217,119,6,.4);
+  color: #92400e;
+}
+.merge-banner__btn--confirm:hover:not(:disabled) { background: rgba(217,119,6,.3); }
+.merge-banner__btn--confirm:disabled { opacity: .4; cursor: not-allowed; }
+.merge-banner__btn--cancel {
+  background: rgba(0,0,0,.06);
+  border-color: rgba(0,0,0,.12);
+  color: var(--text-2);
+}
+.merge-banner__btn--cancel:hover { background: rgba(0,0,0,.12); }
 
 /* ─── Fixture tokens ──────────────────────────────────────── */
 .fixture-token {

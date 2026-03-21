@@ -115,7 +115,7 @@ export function AreaTabs({
     <>
       <div
         ref={scrollContainerRef}
-        className="flex items-end bg-white border-b border-gray-200 px-3 overflow-x-auto flex-shrink-0 min-h-0"
+        className="flex items-center bg-white border-b border-gray-200 px-3 gap-1 overflow-x-auto flex-shrink-0 min-h-0"
         style={{ scrollbarWidth: "none" }}
       >
         {/* Salon tab'ları */}
@@ -128,10 +128,10 @@ export function AreaTabs({
             <div
               key={area.id}
               data-area-id={area.id}
-              className={`relative flex-shrink-0 group flex items-center gap-1 cursor-pointer select-none transition-colors duration-150
+              className={`relative my-1.5 flex-shrink-0 group flex items-center gap-1 cursor-pointer select-none rounded-full transition-all duration-200
                 ${isActive
-                  ? "px-4 py-3 border-b-2 border-indigo-600 text-indigo-700 font-semibold bg-indigo-50"
-                  : "px-3 py-2.5 border-b-2 border-transparent text-gray-500 hover:text-gray-700 hover:bg-gray-50 rounded-t-lg"
+                  ? "bg-indigo-600 text-white px-5 py-2 font-semibold shadow-sm"
+                  : "bg-transparent text-gray-500 px-5 py-2 hover:bg-gray-100"
                 }`}
             >
               {isEditing ? (

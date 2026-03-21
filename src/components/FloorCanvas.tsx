@@ -112,6 +112,8 @@ interface FloorCanvasProps {
     patch: Partial<Pick<MergedTableGroup, "x" | "y" | "width" | "height">>
   ) => void;
   onDeleteFixture: (fixtureId: string) => void;
+  onConfirmMerge: () => void;
+  onCancelMerge: () => void;
   onInteractionStart: () => void;
   onMultiSelectChange?: (ids: string[]) => void;
   onCanvasViewportChange?: (viewport: { width: number; height: number }) => void;
@@ -225,6 +227,8 @@ export function FloorCanvas({
   onUpdateFixture,
   onUpdateMergedGroupLayout,
   onDeleteFixture,
+  onConfirmMerge,
+  onCancelMerge,
   onInteractionStart,
   onMultiSelectChange,
   onCanvasViewportChange,
@@ -241,6 +245,8 @@ export function FloorCanvas({
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const pointerClientRef = useRef<{ x: number; y: number } | null>(null);
   const edgeScrollFrameRef = useRef<number | null>(null);
+  // drag vs click: true when pointer moved past threshold during an active drag
+  const dragMovedRef = useRef(false);
 
   // Multi-select state
   const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
@@ -466,6 +472,11 @@ export function FloorCanvas({
       const pointer = toCanvasPoint(event.clientX, event.clientY);
       if (!pointer) return;
 
+      // Mark drag if pointer moved more than threshold from start
+      if (Math.abs(pointer.x - dragState.startX) > 3 || Math.abs(pointer.y - dragState.startY) > 3) {
+        dragMovedRef.current = true;
+      }
+
       // Multi-move: drag all selected tables together
       if (dragState.type === "multi-move") {
         const dx = pointer.x - dragState.startX;
@@ -580,6 +591,8 @@ export function FloorCanvas({
       pointerClientRef.current = null;
       setDragState(null);
       setGuides({ x: null, y: null });
+      // Reset after click event fires (click fires before setTimeout(0))
+      setTimeout(() => { dragMovedRef.current = false; }, 0);
     };
 
     window.addEventListener("pointermove", onPointerMove);
@@ -727,7 +740,20 @@ export function FloorCanvas({
             {mergeMode.active ? (
               <div className="merge-banner">
                 <strong>Birleştirme modu aktif</strong>
-                <span>Yakın masaları seçip menüden birleştir.</span>
+                <span>Masaları seçin, ardından onaylayın.</span>
+                <button
+                  className="merge-banner__btn merge-banner__btn--confirm"
+                  disabled={mergeMode.tableIds.length < 2}
+                  onClick={onConfirmMerge}
+                >
+                  Birleştir
+                </button>
+                <button
+                  className="merge-banner__btn merge-banner__btn--cancel"
+                  onClick={onCancelMerge}
+                >
+                  İptal
+                </button>
               </div>
             ) : null}
             {fixtures.map((fixture) => {
@@ -745,6 +771,7 @@ export function FloorCanvas({
                   }}
                   onClick={(event) => {
                     event.stopPropagation();
+                    if (dragMovedRef.current) return;
                     onSelectFixture(fixture.id);
                   }}
                   onPointerDown={
@@ -847,6 +874,7 @@ export function FloorCanvas({
                 onClick={(event) => {
                   event.stopPropagation();
                   if (mergeMode.active) return;
+                  if (dragMovedRef.current) return;
                   onSelectMergedGroup(group.id);
                 }}
                 onPointerDown={
@@ -933,6 +961,7 @@ export function FloorCanvas({
                   showRotateButton={!tableInGroup && (selectedObject?.kind === "table" && selectedObject.id === table.id)}
                   onRotate={() => onUpdateTable(table.id, { rotation: ((table.rotation ?? 0) + 90) % 360 })}
                   onSelect={() => {
+                    if (dragMovedRef.current) return;
                     // Clear multi-select on individual click
                     if (multiSelectedIds.size > 0) {
                       setMultiSelectedIds(new Set());
