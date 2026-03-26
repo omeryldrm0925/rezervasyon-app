@@ -220,6 +220,8 @@ const PRICING = [
 export function LandingPage() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [scrolled, setScrolled]     = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
+  const hamburgerRef  = useRef<HTMLButtonElement>(null);
   const [activeFeature, setActiveFeature] = useState(0);
 
   // Reveal refs
@@ -249,6 +251,18 @@ export function LandingPage() {
     });
     return () => observers.forEach(obs => obs?.disconnect());
   }, []);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (
+        !mobileMenuRef.current?.contains(e.target as Node) &&
+        !hamburgerRef.current?.contains(e.target as Node)
+      ) setMobileOpen(false);
+    };
+    window.addEventListener("mousedown", onDown);
+    return () => window.removeEventListener("mousedown", onDown);
+  }, [mobileOpen]);
 
   function scrollTo(id: string) {
     document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
@@ -280,7 +294,11 @@ export function LandingPage() {
           </div>
 
           {/* Mobile hamburger */}
-          <button className="md:hidden p-2 text-stone-600 rounded-lg hover:bg-stone-100" onClick={() => setMobileOpen(v => !v)}>
+          <button
+            ref={hamburgerRef}
+            className="md:hidden p-2 text-stone-600 rounded-lg hover:bg-stone-100"
+            onClick={() => setMobileOpen(v => !v)}
+          >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               {mobileOpen
                 ? <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
@@ -290,7 +308,11 @@ export function LandingPage() {
         </nav>
 
         {mobileOpen && (
-          <div className="md:hidden border-t border-stone-200 bg-white/95 backdrop-blur-md px-5 py-4 space-y-1 text-sm">
+          <div
+            ref={mobileMenuRef}
+            className="md:hidden absolute right-5 bg-white shadow-lg border border-gray-200 rounded-xl p-4 space-y-1 text-sm w-56"
+            style={{ top: "calc(100% + 8px)" }}
+          >
             {["ozellikler:Özellikler", "fiyatlandirma:Fiyatlandırma", "sss:SSS"].map(s => {
               const [id, label] = s.split(":");
               return (

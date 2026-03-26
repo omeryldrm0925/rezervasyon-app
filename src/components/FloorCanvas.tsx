@@ -901,7 +901,7 @@ export function FloorCanvas({
                 }
                 title={`${group.name} | ${groupBadgeById[group.id] ?? `0/${frame.capacity}`}`}
               >
-                <header className="merged-token__header">
+                <header className="merged-token__header" style={{ visibility: "hidden" }}>
                   <strong>{group.name}</strong>
                   <span>{groupBadgeById[group.id] ?? `0/${frame.capacity}`}</span>
                 </header>
@@ -1070,6 +1070,27 @@ export function FloorCanvas({
                 />
               );
             })}
+
+            {/* Grup isimleri — masa tokenların üstünde (z-index: 6) */}
+            {renderedGroups.map(({ group, frame }) => (
+              <div
+                key={`grp-label-${group.id}`}
+                style={{
+                  position: "absolute",
+                  left: frame.x,
+                  top: frame.y,
+                  width: frame.width,
+                  zIndex: 6,
+                  pointerEvents: "none",
+                  padding: "8px 10px",
+                }}
+              >
+                <header className="merged-token__header">
+                  <strong>{group.name}</strong>
+                  <span>{groupBadgeById[group.id] ?? `0/${frame.capacity}`}</span>
+                </header>
+              </div>
+            ))}
           </div>
         </div>
       </div>

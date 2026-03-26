@@ -149,6 +149,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
     tableId: string; areaId: string; reservationId: string | null;
   } | null>(null);
   const [popupFormDraft, setPopupFormDraft] = useState<ReservationFormData | null>(null);
+  const [popupReservationId, setPopupReservationId] = useState<string | undefined>(undefined);
   const multiSelectedRef = useRef<string[]>([]);
   multiSelectedRef.current = multiSelectedTableIds;
   const clipboardRef = useRef(clipboardTables);
@@ -389,13 +390,41 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
       sel != null &&
       (sel.kind === "table" || sel.kind === "group") &&
       !state.mergeMode.active;
-    if (!shouldShow) { setPopupFormDraft(null); return; }
-    setPopupFormDraft({
-      guestName: "", phone: "", guestCount: 2, time: "19:00",
-      ownerId: sel.id,
-      ownerType: sel.kind === "group" ? "group" : "table",
-      notes: "", status: "reserved",
-    });
+    if (!shouldShow) { setPopupFormDraft(null); setPopupReservationId(undefined); return; }
+
+    // Mevcut aktif rezervasyonu yükle (varsa)
+    const s = stateRef.current;
+    const ownerType = sel.kind === "group" ? "group" : "table";
+    const existingRes = s.reservations.find(
+      (r) =>
+        r.dateISO === s.activeDateISO &&
+        r.ownerId === sel.id &&
+        r.ownerType === ownerType &&
+        r.status !== "cancelled" &&
+        r.status !== "no_show"
+    );
+
+    if (existingRes) {
+      setPopupReservationId(existingRes.id);
+      setPopupFormDraft({
+        guestName: existingRes.guestName,
+        phone: existingRes.phone,
+        guestCount: existingRes.guestCount,
+        time: existingRes.time,
+        ownerId: existingRes.ownerId,
+        ownerType: existingRes.ownerType,
+        notes: existingRes.notes,
+        status: existingRes.status,
+      });
+    } else {
+      setPopupReservationId(undefined);
+      setPopupFormDraft({
+        guestName: "", phone: "", guestCount: 2, time: "19:00",
+        ownerId: sel.id,
+        ownerType,
+        notes: "", status: "reserved",
+      });
+    }
   }, [state.selectedObject?.id, state.layoutUnlocked, state.mergeMode.active]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Early return'ler (tüm hook'lardan sonra) ──────────────────────────────
@@ -579,12 +608,11 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
       selectedGroup && actions.renameMergedGroup(activeArea.id, selectedGroup.id, name),
   } : null;
 
-  const sidebarReservationTrigger = (!state.layoutUnlocked && hasTableSelection && selectedObject) ? {
-    ownerId: selectedObject.id,
-    ownerType: (selectedObject.kind === "group" ? "group" : "table") as "table" | "group",
-  } : null;
 
   // Canvas popup: masa/grup seçiliyken canvas üzerinde form göster
+  const POPUP_W = 320;
+  const POPUP_H = 480; // tahmini yükseklik (konumlandırma için)
+  const POPUP_GAP = 8;
   const popupPosition = (() => {
     if (!popupFormDraft || state.layoutUnlocked) return null;
     const sel = state.selectedObject;
@@ -592,17 +620,44 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
     const z = canvasView.zoom;
     const sl = canvasView.scrollLeft;
     const st = canvasView.scrollTop;
+    const vw = canvasView.width;
+    const vh = canvasView.height;
+
+    // Öncelik: altında → üstünde → sağında → solunda → en iyi sığan yerde
+    function resolvePos(
+      anchorCenterX: number,
+      objLeft: number, objRight: number,
+      objTop: number, objBottom: number,
+    ) {
+      const fitBelow = objBottom + POPUP_GAP + POPUP_H <= vh;
+      const fitAbove = objTop - POPUP_GAP - POPUP_H >= 0;
+      const fitRight = objRight + POPUP_GAP + POPUP_W <= vw;
+      const fitLeft  = objLeft  - POPUP_GAP - POPUP_W >= 0;
+
+      const clampedHLeft = Math.max(POPUP_GAP, Math.min(anchorCenterX - POPUP_W / 2, vw - POPUP_W - POPUP_GAP));
+      const clampedVTop  = Math.max(POPUP_GAP, Math.min(objTop, vh - POPUP_H - POPUP_GAP));
+
+      if (fitBelow) return { left: clampedHLeft, top: objBottom + POPUP_GAP };
+      if (fitAbove) return { left: clampedHLeft, top: objTop - POPUP_H - POPUP_GAP };
+      if (fitRight) return { left: objRight + POPUP_GAP, top: clampedVTop };
+      if (fitLeft)  return { left: objLeft - POPUP_W - POPUP_GAP, top: clampedVTop };
+      // Hiçbiri tam sığmıyor — alta sabitle, yatay ortala
+      return { left: clampedHLeft, top: Math.max(POPUP_GAP, vh - POPUP_H - POPUP_GAP) };
+    }
+
     if (sel.kind === "table") {
       const t = tables.find((tbl) => tbl.id === sel.id);
       if (!t) return null;
-      return { left: t.x * z - sl + (t.width * z) / 2, top: t.y * z - st + t.height * z + 8 };
+      const sx = t.x * z - sl, sy = t.y * z - st;
+      return resolvePos(sx + (t.width * z) / 2, sx, sx + t.width * z, sy, sy + t.height * z);
     }
     if (sel.kind === "group") {
       const grp = mergedGroupsById[sel.id];
       if (!grp) return null;
       const frame = getMergedGroupFrame(grp, tableMap);
       if (!frame) return null;
-      return { left: frame.x * z - sl + (frame.width * z) / 2, top: frame.y * z - st + frame.height * z + 8 };
+      const sx = frame.x * z - sl, sy = frame.y * z - st;
+      return resolvePos(sx + (frame.width * z) / 2, sx, sx + frame.width * z, sy, sy + frame.height * z);
     }
     return null;
   })();
@@ -640,6 +695,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
 
   const handleSelectReservation = (reservation: Reservation) => {
     // Sadece highlight — selectTable/Group çağırmıyoruz, form açılmasın
+    actions.clearSelection();
     actions.highlightReservation(reservation.id, reservation.tableIds[0] ?? null);
     if (state.activeAreaId !== reservation.areaId) {
       actions.setArea(reservation.areaId);
@@ -762,7 +818,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
       <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
         {restaurantName && (
           <div className="px-4 pt-2 pb-0 bg-white">
-            <span className="text-xs font-semibold text-indigo-600 tracking-wide uppercase">{restaurantName}</span>
+            <span className="text-xs font-semibold text-indigo-600 tracking-wide">{restaurantName.toLocaleUpperCase('tr-TR')}</span>
           </div>
         )}
         <AreaTabs
@@ -928,10 +984,11 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
               {popupFormDraft && popupPosition && (
                 <TablePopup
                   draft={popupFormDraft}
+                  reservationId={popupReservationId}
                   targets={popupReservationTargets}
                   position={popupPosition}
                   onChangeDraft={(patch) => setPopupFormDraft((d) => d ? { ...d, ...patch } : null)}
-                  onSubmit={(draft) => { handleSidebarSave(draft); actions.clearSelection(); }}
+                  onSubmit={(draft, resId) => { handleSidebarSave(draft, resId); actions.clearSelection(); }}
                   onClose={() => actions.clearSelection()}
                 />
               )}
@@ -956,13 +1013,16 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             warningByReservation={warningByReservation}
             onSearchChange={actions.setReservationSearchQuery}
             onSelectReservation={handleSelectReservation}
-            onSaveReservation={handleSidebarSave}
-            onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
+            onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
             onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
-            reservationTrigger={sidebarReservationTrigger}
-            onFormClose={() => actions.clearSelection()}
+            areas={state.areas}
+            onSetActiveArea={actions.setArea}
+            onTriggerTableSelect={(ownerId, ownerType) => {
+              if (ownerType === "group") actions.selectMergedGroup(ownerId);
+              else actions.selectTable(ownerId);
+            }}
           />
         </div>
 
@@ -982,13 +1042,17 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             warningByReservation={warningByReservation}
             onSearchChange={actions.setReservationSearchQuery}
             onSelectReservation={handleSelectReservation}
-            onSaveReservation={handleSidebarSave}
-            onDeleteReservation={(reservationId) => actions.deleteReservation(reservationId)}
+            onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
             onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
-            reservationTrigger={sidebarReservationTrigger}
-            onFormClose={() => actions.clearSelection()}
+            areas={state.areas}
+            onSetActiveArea={actions.setArea}
+            onTriggerTableSelect={(ownerId, ownerType) => {
+              if (ownerType === "group") actions.selectMergedGroup(ownerId);
+              else actions.selectTable(ownerId);
+              setMobileTab("plan");
+            }}
           />
         )}
 
@@ -1341,6 +1405,7 @@ function getReservationCapacity(
 // ── Canvas popup bileşeni ──────────────────────────────────────────────────
 function TablePopup({
   draft,
+  reservationId,
   targets,
   position,
   onChangeDraft,
@@ -1348,16 +1413,22 @@ function TablePopup({
   onClose,
 }: {
   draft: ReservationFormData;
+  reservationId?: string;
   targets: Array<{ id: string; label: string; isGroup: boolean }>;
   position: { left: number; top: number };
   onChangeDraft: (patch: Partial<ReservationFormData>) => void;
-  onSubmit: (draft: ReservationFormData) => void;
+  onSubmit: (draft: ReservationFormData, reservationId?: string) => void;
   onClose: () => void;
 }) {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    onSubmit(draft);
+    onSubmit(draft, reservationId);
   }
+
+  const isEdit = Boolean(reservationId);
+
+  const inputCls = "w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-200 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent";
+  const labelCls = "block text-xs text-gray-500 mb-1";
 
   return (
     <div
@@ -1365,71 +1436,112 @@ function TablePopup({
         position: "absolute",
         left: position.left,
         top: position.top,
-        transform: "translateX(-50%)",
         zIndex: 50,
         pointerEvents: "auto",
-        width: 260,
+        width: 320,
       }}
       onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => e.stopPropagation()}
       className="bg-white rounded-xl shadow-xl border border-gray-200 overflow-hidden"
     >
       {/* Başlık */}
       <div className="flex items-center justify-between px-3 pt-3 pb-2 border-b border-gray-100">
-        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Yeni Rezervasyon</span>
+        <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+          {isEdit ? "Düzenle" : "Yeni Rezervasyon"}
+        </span>
         <button type="button" onClick={onClose}
           className="w-5 h-5 flex items-center justify-center rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600"
         >
-          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
             <line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/>
           </svg>
         </button>
       </div>
+
       {/* Form */}
-      <form onSubmit={handleSubmit} className="p-3 space-y-2">
-        <input type="text" required placeholder="Misafir Adı"
-          value={draft.guestName}
-          onChange={(e) => onChangeDraft({ guestName: e.target.value })}
-          className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <input type="tel" required placeholder="Telefon"
-          value={draft.phone}
-          onChange={(e) => onChangeDraft({ phone: e.target.value })}
-          className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-        />
-        <div className="grid grid-cols-2 gap-2">
-          <input type="number" required min={1} max={50} placeholder="Kişi"
-            value={draft.guestCount}
-            onChange={(e) => onChangeDraft({ guestCount: Math.max(1, Number(e.target.value)) })}
-            className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          />
-          <input type="time" required
-            value={draft.time}
-            onChange={(e) => onChangeDraft({ time: e.target.value })}
-            className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+      <form onSubmit={handleSubmit} className="p-3 space-y-2.5">
+        <div>
+          <label className={labelCls}>Misafir Adı</label>
+          <input type="text" required
+            value={draft.guestName}
+            onChange={(e) => onChangeDraft({ guestName: e.target.value })}
+            placeholder="Ad Soyad"
+            className={inputCls}
           />
         </div>
+
+        <div>
+          <label className={labelCls}>Telefon</label>
+          <input type="tel" required
+            value={draft.phone}
+            onChange={(e) => onChangeDraft({ phone: e.target.value })}
+            placeholder="05xx xxx xx xx"
+            className={inputCls}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className={labelCls}>Kişi</label>
+            <input type="number" required min={1} max={50}
+              value={draft.guestCount}
+              onChange={(e) => onChangeDraft({ guestCount: Math.max(1, Number(e.target.value)) })}
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>Saat</label>
+            <input type="time" required
+              value={draft.time}
+              onChange={(e) => onChangeDraft({ time: e.target.value })}
+              className={inputCls}
+            />
+          </div>
+        </div>
+
         {targets.length > 1 && (
-          <select value={draft.ownerId}
-            onChange={(e) => {
-              const t = targets.find((x) => x.id === e.target.value);
-              if (t) onChangeDraft({ ownerId: t.id, ownerType: t.isGroup ? "group" : "table" });
-            }}
-            className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-          >
-            {targets.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-          </select>
+          <div>
+            <label className={labelCls}>Masa</label>
+            <select value={draft.ownerId}
+              onChange={(e) => {
+                const t = targets.find((x) => x.id === e.target.value);
+                if (t) onChangeDraft({ ownerId: t.id, ownerType: t.isGroup ? "group" : "table" });
+              }}
+              className={inputCls}
+            >
+              {targets.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+          </div>
         )}
-        <textarea value={draft.notes}
-          onChange={(e) => onChangeDraft({ notes: e.target.value })}
-          placeholder="Not (isteğe bağlı)" rows={2}
-          className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
-        />
+
+        <div>
+          <label className={labelCls}>Durum</label>
+          <select value={draft.status}
+            onChange={(e) => onChangeDraft({ status: e.target.value as import("./types").Reservation["status"] })}
+            className={inputCls}
+          >
+            <option value="reserved">Rezerve</option>
+            <option value="arrived">Geldi</option>
+            <option value="no_show">Gelmedi</option>
+            <option value="cancelled">İptal</option>
+          </select>
+        </div>
+
+        <div>
+          <label className={labelCls}>Not</label>
+          <textarea value={draft.notes}
+            onChange={(e) => onChangeDraft({ notes: e.target.value })}
+            placeholder="İsteğe bağlı..." rows={2}
+            className={`${inputCls} resize-none`}
+          />
+        </div>
+
         <div className="flex gap-2 pt-0.5">
           <button type="submit"
-            className="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors"
-          >Kaydet</button>
+            className="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+          >{isEdit ? "Güncelle" : "Kaydet"}</button>
           <button type="button" onClick={onClose}
-            className="flex-1 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-xs font-medium transition-colors"
+            className="flex-1 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium transition-colors"
           >İptal</button>
         </div>
       </form>

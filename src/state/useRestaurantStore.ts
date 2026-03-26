@@ -89,7 +89,7 @@ function emptyMergeMode(): MergeModeState {
 function buildDefaultTable(shape: TableShape, x: number, y: number): Table {
   if (shape === "round") return { id: uid("table"), label: "Yeni", shape, x, y, width: 90, height: 90, capacity: 4 };
   if (shape === "rectangle") return { id: uid("table"), label: "Yeni", shape, x, y, width: 136, height: 82, capacity: 6 };
-  if (shape === "bar") return { id: uid("table"), label: "Bar", shape, x, y, width: 52, height: 52, capacity: 1 };
+  if (shape === "bar") return { id: uid("table"), label: "Bar", shape, x, y, width: 160, height: 50, capacity: 4 };
   return {
     id: uid("table"),
     label: shape === "booth" ? "Loca" : "Yeni",
@@ -316,7 +316,7 @@ function reducer(state: StoreState, action: Action): StoreState {
       return { ...state, selectedObject, interactionMode: resolveInteractionMode(selectedObject, state.mergeMode) };
     }
     case "CLEAR_SELECTION":
-      return { ...state, selectedObject: null, interactionMode: state.mergeMode.active ? "merging" : "idle" };
+      return { ...state, selectedObject: null, interactionMode: state.mergeMode.active ? "merging" : "idle", highlightedReservationId: null, highlightedTableId: null };
     case "START_RESERVATION_INTENT":
       if (!state.selectedObject || state.selectedObject.kind === "fixture") return state;
       return { ...state, interactionMode: "creatingReservation" };
@@ -371,12 +371,24 @@ function reducer(state: StoreState, action: Action): StoreState {
       };
     }
     case "ADD_TABLE": {
-      const table = buildDefaultTable(action.shape, action.x, action.y);
+      const base = buildDefaultTable(action.shape, action.x, action.y);
+      // Salon bazlı otomatik isim: A-1, B-2, C-3...
+      const areaIndex = state.areas.findIndex((a) => a.id === action.areaId);
+      const letter = String.fromCharCode(65 + Math.min(Math.max(areaIndex, 0), 25));
+      const area = state.areas.find((a) => a.id === action.areaId);
+      const dayOverride = state.overrides[state.activeDateISO]?.[action.areaId];
+      const takenLabels = new Set<string>([
+        ...(area?.defaultTables.map((t) => t.label) ?? []),
+        ...(dayOverride?.addedTables.map((t) => t.label) ?? []),
+      ]);
+      let n = 1;
+      while (takenLabels.has(`${letter}-${n}`)) n++;
+      const table = { ...base, label: `${letter}-${n}` };
       if (action.targetMode === "default") {
         return {
           ...state,
-          areas: state.areas.map((area) =>
-            area.id === action.areaId ? { ...area, defaultTables: [...area.defaultTables, table] } : area
+          areas: state.areas.map((a) =>
+            a.id === action.areaId ? { ...a, defaultTables: [...a.defaultTables, table] } : a
           ),
         };
       }
@@ -385,6 +397,20 @@ function reducer(state: StoreState, action: Action): StoreState {
       return { ...state, overrides };
     }
     case "UPDATE_TABLE": {
+      // Aynı salonda tekrar eden isim kontrolü
+      if (action.patch.label !== undefined) {
+        const trimmedLabel = action.patch.label.trim();
+        const area = state.areas.find((a) => a.id === action.areaId);
+        const dayOverride = state.overrides[state.activeDateISO]?.[action.areaId];
+        const allTables = [
+          ...(area?.defaultTables ?? []),
+          ...(dayOverride?.addedTables ?? []),
+        ];
+        const isDuplicate = allTables.some(
+          (t) => t.id !== action.tableId && t.label === trimmedLabel
+        );
+        if (isDuplicate) return state;
+      }
       if (action.targetMode === "default") {
         return {
           ...state,

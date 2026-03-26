@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   type EffectiveTable,
   type MergedTableGroup,
@@ -33,7 +33,6 @@ interface ReservationSidebarProps {
   warningByReservation: Record<string, string>;
   onSearchChange: (query: string) => void;
   onSelectReservation: (reservation: Reservation) => void;
-  onSaveReservation: (data: ReservationFormData, reservationId?: string) => void;
   onDeleteReservation: (reservationId: string) => void;
   onSetStatus: (reservationId: string, status: Reservation["status"]) => void;
   onSignOut: () => void;
@@ -51,10 +50,12 @@ interface ReservationSidebarProps {
     onClose: () => void;
     onRenameGroup?: (name: string) => void;
   } | null;
-  /** Seçilen masayla rezervasyon formunu otomatik aç (ownerId değişince tetiklenir) */
-  reservationTrigger?: { ownerId: string; ownerType: "table" | "group" } | null;
-  /** Form iptal edilince çağrılır (seçimi temizlemek için) */
-  onFormClose?: () => void;
+  /** Tüm salonlar listesi (salon dropdown için) */
+  areas: Array<{ id: string; name: string }>;
+  /** Aktif salonu değiştir */
+  onSetActiveArea: (areaId: string) => void;
+  /** Masa seçilince canvas popup'ı aç */
+  onTriggerTableSelect: (ownerId: string, ownerType: "table" | "group") => void;
 }
 
 const statusConfig: Record<
@@ -92,24 +93,55 @@ export function ReservationSidebar({
   warningByReservation,
   onSearchChange,
   onSelectReservation,
-  onSaveReservation,
   onDeleteReservation,
   onSetStatus,
   onSignOut,
   className,
   tableEditor,
-  reservationTrigger,
-  onFormClose,
+  areas,
+  onSetActiveArea,
+  onTriggerTableSelect,
 }: ReservationSidebarProps) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [detailReservation, setDetailReservation] = useState<Reservation | null>(null);
-  const prevTriggerOwnerIdRef = useRef<string | undefined>(undefined);
-  const [formState, setFormState] = useState<{
-    mode: "new" | "edit";
-    reservationId?: string;
-    dateISO?: string;
-    draft: ReservationFormData;
+  const [selectorOpen, setSelectorOpen] = useState(false);
+  const [selectorAreaId, setSelectorAreaId] = useState<string>(activeAreaId ?? "");
+
+  // ── Table editor draft state ─────────────────────────────────────────────
+  const [tableEditorDraft, setTableEditorDraft] = useState<{
+    label: string; capacity: number; shape: TableShape;
+    rotation: number; width: number; height: number; blocked: boolean;
   } | null>(null);
+  const [groupNameDraft, setGroupNameDraft] = useState<string | null>(null);
+
+  // Salon değişince selectorAreaId'yi güncelle
+  useEffect(() => {
+    setSelectorAreaId(activeAreaId ?? "");
+  }, [activeAreaId]);
+
+  // Init/reset draft when selected table changes
+  useEffect(() => {
+    const t = tableEditor?.table;
+    if (!t) { setTableEditorDraft(null); return; }
+    setTableEditorDraft({
+      label: t.label, capacity: t.capacity, shape: t.shape,
+      rotation: t.rotation ?? 0, width: t.width, height: t.height,
+      blocked: t.blocked ?? false,
+    });
+  }, [tableEditor?.table?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Init/reset group name draft when selected group changes
+  useEffect(() => {
+    const g = tableEditor?.group;
+    if (!g) { setGroupNameDraft(null); return; }
+    setGroupNameDraft(g.name);
+  }, [tableEditor?.group?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Edit modu açılınca mini-selector'ı kapat
+  useEffect(() => {
+    if (!tableEditor) return;
+    setSelectorOpen(false);
+  }, [Boolean(tableEditor)]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Unique selectable targets: individual tables + merged groups (deduplicated)
   const reservationTargets = useMemo(() => {
@@ -148,109 +180,6 @@ export function ReservationSidebar({
     (r) => r.status !== "cancelled" && r.status !== "no_show"
   ).length;
 
-  // ── Table editor draft state ─────────────────────────────────────────────
-  const [tableEditorDraft, setTableEditorDraft] = useState<{
-    label: string; capacity: number; shape: TableShape;
-    rotation: number; width: number; height: number; blocked: boolean;
-  } | null>(null);
-  const [groupNameDraft, setGroupNameDraft] = useState<string | null>(null);
-
-  // Init/reset draft when selected table changes
-  useEffect(() => {
-    const t = tableEditor?.table;
-    if (!t) { setTableEditorDraft(null); return; }
-    setTableEditorDraft({
-      label: t.label, capacity: t.capacity, shape: t.shape,
-      rotation: t.rotation ?? 0, width: t.width, height: t.height,
-      blocked: t.blocked ?? false,
-    });
-  }, [tableEditor?.table?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Init/reset group name draft when selected group changes
-  useEffect(() => {
-    const g = tableEditor?.group;
-    if (!g) { setGroupNameDraft(null); return; }
-    setGroupNameDraft(g.name);
-  }, [tableEditor?.group?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Edit modu açılınca açık rezervasyon formunu kapat
-  const tableEditorActive = Boolean(tableEditor);
-  useEffect(() => {
-    if (!tableEditorActive) return;
-    setFormState(null);
-  }, [tableEditorActive]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Masaya tıklayınca form aç; canvas boş alana tıklayınca form kapat
-  useEffect(() => {
-    const prev = prevTriggerOwnerIdRef.current;
-    const curr = reservationTrigger?.ownerId;
-    prevTriggerOwnerIdRef.current = curr;
-
-    if (!reservationTrigger) {
-      // Seçim kaldırıldı — daha önce seçim vardıysa formu kapat
-      if (prev !== undefined) {
-        setFormState(null);
-        setDetailReservation(null);
-      }
-      return;
-    }
-    setFormState({
-      mode: "new",
-      draft: {
-        guestName: "", phone: "", guestCount: 2, time: "19:00",
-        ownerId: reservationTrigger.ownerId,
-        ownerType: reservationTrigger.ownerType,
-        notes: "", status: "reserved",
-      },
-    });
-    setExpandedId(null);
-    setDetailReservation(null);
-  }, [reservationTrigger?.ownerId]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  function blankDraft(): ReservationFormData {
-    const first = reservationTargets[0];
-    return {
-      guestName: "",
-      phone: "",
-      guestCount: 2,
-      time: "19:00",
-      ownerId: first?.id ?? "",
-      ownerType: first?.isGroup ? "group" : "table",
-      notes: "",
-      status: "reserved",
-    };
-  }
-
-  function openNewForm() {
-    setFormState({ mode: "new", draft: blankDraft() });
-    setExpandedId(null);
-  }
-
-  function openEditForm(reservation: Reservation) {
-    setFormState({
-      mode: "edit",
-      reservationId: reservation.id,
-      dateISO: reservation.dateISO,
-      draft: {
-        guestName: reservation.guestName,
-        phone: reservation.phone,
-        guestCount: reservation.guestCount,
-        time: reservation.time,
-        ownerId: reservation.ownerId,
-        ownerType: reservation.ownerType,
-        notes: reservation.notes,
-        status: reservation.status,
-      },
-    });
-    setExpandedId(null);
-  }
-
-  function updateDraft(patch: Partial<ReservationFormData>) {
-    setFormState((prev) =>
-      prev ? { ...prev, draft: { ...prev.draft, ...patch } } : prev
-    );
-  }
-
   function isFutureDate(dateISO: string): boolean {
     const today = new Date();
     const [y, m, d] = dateISO.split("-").map(Number);
@@ -277,19 +206,6 @@ export function ReservationSidebar({
     return true;
   }
 
-  function handleFormSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!formState) return;
-    onSaveReservation(formState.draft, formState.reservationId);
-    setFormState(null);
-    onFormClose?.();
-  }
-
-  function handleFormCancel() {
-    setFormState(null);
-    onFormClose?.();
-  }
-
   function getOwnerLabel(reservation: Reservation): string {
     if (reservation.areaId !== activeAreaId) {
       return areaNameById[reservation.areaId] ?? reservation.areaId;
@@ -298,6 +214,16 @@ export function ReservationSidebar({
       return mergedGroupsById[reservation.ownerId]?.name ?? "Birleşik Masa";
     }
     return tables.find((t) => t.id === reservation.ownerId)?.label ?? reservation.ownerId;
+  }
+
+  function handleEditReservation(reservation: Reservation) {
+    if (reservation.areaId !== activeAreaId) {
+      onSetActiveArea(reservation.areaId);
+    }
+    onTriggerTableSelect(reservation.ownerId, reservation.ownerType);
+    setDetailReservation(null);
+    setExpandedId(null);
+    setSelectorOpen(false);
   }
 
   return (
@@ -330,16 +256,23 @@ export function ReservationSidebar({
             </button>
           </div>
 
-          {tableEditor.table && tableEditorDraft ? (
+          {tableEditor.table && tableEditorDraft ? (() => {
+            const isDuplicateLabel = tables.some(
+              (t) => t.id !== tableEditor.table!.id && t.label === tableEditorDraft.label.trim()
+            );
+            return (
             <div className="space-y-2.5">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Masa Adı</label>
                 <input
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  className={`w-full px-3 py-2 text-sm rounded-lg border bg-white focus:outline-none focus:ring-2 ${isDuplicateLabel ? "border-red-400 focus:ring-red-400" : "border-gray-300 focus:ring-indigo-500"}`}
                   value={tableEditorDraft.label}
                   onChange={(e) => setTableEditorDraft((d) => d && { ...d, label: e.target.value })}
                   maxLength={24}
                 />
+                {isDuplicateLabel && (
+                  <p className="text-xs text-red-500 mt-1">Bu isimde bir masa zaten var</p>
+                )}
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div>
@@ -377,6 +310,39 @@ export function ReservationSidebar({
                   </select>
                 </div>
               </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Boyutlar (px)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <input
+                    type="number" min={40} max={300} step={4}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={tableEditorDraft.width}
+                    onChange={(e) => {
+                      const v = Math.max(40, Math.min(300, Math.round(Number(e.target.value) || tableEditorDraft.width)));
+                      setTableEditorDraft((d) => {
+                        if (!d) return d;
+                        return d.shape === "round" ? { ...d, width: v, height: v } : { ...d, width: v };
+                      });
+                    }}
+                    placeholder="Genişlik"
+                  />
+                  <input
+                    type="number" min={40} max={300} step={4}
+                    className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    value={tableEditorDraft.height}
+                    onChange={(e) => {
+                      const v = Math.max(40, Math.min(300, Math.round(Number(e.target.value) || tableEditorDraft.height)));
+                      setTableEditorDraft((d) => {
+                        if (!d) return d;
+                        return d.shape === "round" ? { ...d, width: v, height: v } : { ...d, height: v };
+                      });
+                    }}
+                    placeholder="Yükseklik"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Rotasyon</label>
               <div className="flex gap-1">
                 {([0, 90, 180, 270] as const).map((deg) => (
                   <button
@@ -387,6 +353,17 @@ export function ReservationSidebar({
                     {deg}°
                   </button>
                 ))}
+              </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="table-blocked"
+                  checked={tableEditorDraft.blocked}
+                  onChange={(e) => setTableEditorDraft((d) => d && { ...d, blocked: e.target.checked })}
+                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
+                />
+                <label htmlFor="table-blocked" className="text-xs font-medium text-gray-600">Masayı bloke et</label>
               </div>
               <button
                 type="button"
@@ -400,7 +377,8 @@ export function ReservationSidebar({
                   });
                   tableEditor.onClose();
                 }}
-                className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+                disabled={isDuplicateLabel}
+                className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
               >
                 Kaydet
               </button>
@@ -421,7 +399,8 @@ export function ReservationSidebar({
                 Masayı Sil
               </button>
             </div>
-          ) : tableEditor.group ? (
+            );
+          })() : tableEditor.group ? (
             <div className="space-y-2.5">
               <div>
                 <label className="block text-xs font-medium text-gray-600 mb-1">Grup Adı</label>
@@ -509,7 +488,7 @@ export function ReservationSidebar({
           <div className="flex gap-2">
             <button
               type="button"
-              onClick={() => { openEditForm(detailReservation); setDetailReservation(null); }}
+              onClick={() => handleEditReservation(detailReservation)}
               className="flex-1 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors"
             >
               Düzenle
@@ -529,12 +508,12 @@ export function ReservationSidebar({
         </div>
       )}
 
-      {/* ── New Reservation Button ──────────────────────── */}
-      {!formState && !tableEditor && !detailReservation && (
+      {/* ── Yeni Rezervasyon Butonu ──────────────────────── */}
+      {!selectorOpen && !tableEditor && !detailReservation && (
         <div className="px-4 pt-3 flex-shrink-0">
           <button
-            onClick={openNewForm}
-            disabled={reservationTargets.length === 0}
+            onClick={() => setSelectorOpen(true)}
+            disabled={areas.length === 0}
             className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors flex items-center justify-center gap-1.5"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -545,137 +524,71 @@ export function ReservationSidebar({
         </div>
       )}
 
-      {/* ── Inline Form ─────────────────────────────────── */}
-      {formState && (
+      {/* ── Mini Salon + Masa Seçici ─────────────────────── */}
+      {selectorOpen && !tableEditor && (
         <div className="mx-4 mt-3 bg-gray-50 rounded-xl border border-gray-200 p-4 flex-shrink-0">
-          <h3 className="text-xs font-semibold text-gray-500 mb-3 uppercase tracking-wide">
-            {formState.mode === "new" ? "Yeni Rezervasyon" : "Rezervasyonu Düzenle"}
-          </h3>
-          <form onSubmit={handleFormSubmit} className="space-y-2.5">
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Misafir Adı</label>
-              <input
-                type="text"
-                required
-                value={formState.draft.guestName}
-                onChange={(e) => updateDraft({ guestName: e.target.value })}
-                placeholder="Ad Soyad"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Telefon</label>
-              <input
-                type="tel"
-                required
-                value={formState.draft.phone}
-                onChange={(e) => updateDraft({ phone: e.target.value })}
-                placeholder="05xx xxx xx xx"
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-              />
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Yeni Rezervasyon</span>
+            <button
+              onClick={() => setSelectorOpen(false)}
+              className="w-6 h-6 flex items-center justify-center rounded-md hover:bg-gray-200 text-gray-400 hover:text-gray-600"
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                <line x1="1" y1="1" x2="11" y2="11"/><line x1="11" y1="1" x2="1" y2="11"/>
+              </svg>
+            </button>
+          </div>
+          <div className="space-y-2.5">
+            {areas.length > 1 && (
               <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Kişi</label>
-                <input
-                  type="number"
-                  required
-                  min={1}
-                  max={50}
-                  value={formState.draft.guestCount}
-                  onChange={(e) =>
-                    updateDraft({ guestCount: Math.max(1, Number(e.target.value)) })
-                  }
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
+                <label className="block text-xs font-medium text-gray-600 mb-1">Salon</label>
+                <select
+                  value={selectorAreaId}
+                  onChange={(e) => {
+                    setSelectorAreaId(e.target.value);
+                    onSetActiveArea(e.target.value);
+                  }}
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                >
+                  {areas.map((a) => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Saat</label>
-                <input
-                  type="time"
-                  required
-                  value={formState.draft.time}
-                  onChange={(e) => updateDraft({ time: e.target.value })}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                />
-              </div>
-            </div>
-
+            )}
             <div>
               <label className="block text-xs font-medium text-gray-600 mb-1">Masa</label>
               {reservationTargets.length === 0 ? (
-                <p className="text-xs text-gray-400 italic py-1">Önce masa ekleyin</p>
+                <p className="text-xs text-gray-400 italic py-1">Bu salonda uygun masa yok</p>
               ) : (
                 <select
-                  value={formState.draft.ownerId}
+                  value=""
                   onChange={(e) => {
-                    const target = reservationTargets.find((t) => t.id === e.target.value);
-                    if (target) updateDraft({ ownerId: target.id, ownerType: target.isGroup ? "group" : "table" });
+                    const val = e.target.value;
+                    if (!val) return;
+                    const target = reservationTargets.find((t) => t.id === val);
+                    if (target) {
+                      onTriggerTableSelect(val, target.isGroup ? "group" : "table");
+                      setSelectorOpen(false);
+                    }
                   }}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 >
+                  <option value="">Masa seçin...</option>
                   {reservationTargets.map((t) => (
                     <option key={t.id} value={t.id}>{t.label}</option>
                   ))}
                 </select>
               )}
             </div>
-
-            {formState.mode === "edit" && (
-              <div>
-                <label className="block text-xs font-medium text-gray-600 mb-1">Durum</label>
-                <select
-                  value={formState.draft.status}
-                  onChange={(e) => {
-                    const newStatus = e.target.value as Reservation["status"];
-                    const dateISO = formState.dateISO ?? activeDateISO;
-                    if (newStatus === "arrived" && isFutureDate(dateISO)) {
-                      if (!window.confirm("Bu rezervasyon gelecek bir tarihe ait. Durumu 'Geldi' olarak işaretlemek istediğinize emin misiniz?")) return;
-                    }
-                    if (newStatus === "cancelled") {
-                      if (!window.confirm("Bu rezervasyonu iptal etmek istediğinize emin misiniz?\nİptal edilen rezervasyon listede kalır ama masa boşa düşer.")) return;
-                    }
-                    updateDraft({ status: newStatus });
-                  }}
-                  className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
-                >
-                  <option value="reserved">Rezerve</option>
-                  <option value="arrived">Geldi</option>
-                  <option value="cancelled">İptal</option>
-                  <option value="no_show">Gelmedi</option>
-                </select>
-              </div>
-            )}
-
-            <div>
-              <label className="block text-xs font-medium text-gray-600 mb-1">Notlar</label>
-              <textarea
-                value={formState.draft.notes}
-                onChange={(e) => updateDraft({ notes: e.target.value })}
-                placeholder="İsteğe bağlı not..."
-                rows={2}
-                className="w-full px-3 py-2 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none"
-              />
-            </div>
-
-            <div className="flex gap-2 pt-0.5">
-              <button
-                type="submit"
-                className="flex-1 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
-              >
-                {formState.mode === "new" ? "Kaydet" : "Güncelle"}
-              </button>
-              <button
-                type="button"
-                onClick={handleFormCancel}
-                className="flex-1 py-2 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors"
-              >
-                İptal
-              </button>
-            </div>
-          </form>
+            <button
+              type="button"
+              onClick={() => setSelectorOpen(false)}
+              className="w-full py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm font-medium transition-colors"
+            >
+              İptal
+            </button>
+          </div>
         </div>
       )}
 
@@ -746,16 +659,16 @@ export function ReservationSidebar({
                       const isDetail = detailReservation?.id === reservation.id;
                       setDetailReservation(isDetail ? null : reservation);
                       setExpandedId(isDetail ? null : reservation.id);
-                      setFormState(null);
+                      setSelectorOpen(false);
                       onSelectReservation(reservation);
                     }}
                   >
                     <div className="flex-1 min-w-0">
                       <div className="flex items-baseline gap-1.5 mb-0.5">
-                        <span className="text-sm font-bold text-gray-900 tabular-nums flex-shrink-0">
+                        <span className="text-sm font-normal text-gray-500 tabular-nums flex-shrink-0">
                           {reservation.time.slice(0, 5)}
                         </span>
-                        <span className="text-sm font-semibold text-gray-800 truncate">{reservation.guestName}</span>
+                        <span className="text-sm font-semibold text-gray-900 truncate">{reservation.guestName}</span>
                       </div>
                       <div className="flex items-center gap-1 flex-wrap">
                         <span className="text-xs text-gray-400">{reservation.guestCount} kişi</span>
@@ -810,7 +723,7 @@ export function ReservationSidebar({
                           <option value="no_show">Gelmedi</option>
                         </select>
                         <button
-                          onClick={() => openEditForm(reservation)}
+                          onClick={() => handleEditReservation(reservation)}
                           className="text-xs px-2.5 py-1 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-700 font-medium transition-colors"
                         >
                           Düzenle

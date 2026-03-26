@@ -128,6 +128,7 @@ export function AreaTabs({
             <div
               key={area.id}
               data-area-id={area.id}
+              onClick={() => !isEditing && onSelectArea(area.id)}
               className={`relative my-1.5 flex-shrink-0 group flex items-center gap-1 cursor-pointer select-none rounded-full transition-all duration-200
                 ${isActive
                   ? "bg-indigo-600 text-white px-5 py-2 font-semibold shadow-sm"
@@ -148,12 +149,7 @@ export function AreaTabs({
                 />
               ) : (
                 <>
-                  <button
-                    className="text-sm leading-none"
-                    onClick={() => onSelectArea(area.id)}
-                  >
-                    {area.name}
-                  </button>
+                  <span className="text-sm leading-none">{area.name}</span>
 
                   {/* "⋯" butonu */}
                   <button

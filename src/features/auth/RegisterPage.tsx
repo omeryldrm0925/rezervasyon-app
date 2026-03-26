@@ -11,6 +11,7 @@ export function RegisterPage({ onRegister, onGoToLogin, onGoogleSignIn }: Regist
   const [restaurantName, setRestaurantName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -20,6 +21,10 @@ export function RegisterPage({ onRegister, onGoToLogin, onGoogleSignIn }: Regist
     setError(null);
     if (password.length < 6) {
       setError("Şifre en az 6 karakter olmalı.");
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Şifreler eşleşmiyor.");
       return;
     }
     setLoading(true);
@@ -146,9 +151,29 @@ export function RegisterPage({ onRegister, onGoToLogin, onGoogleSignIn }: Regist
                   />
                 </div>
 
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1.5">Şifre Tekrar</label>
+                  <input
+                    type="password"
+                    required
+                    autoComplete="new-password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    placeholder="••••••••"
+                    className={`w-full px-4 py-3 rounded-lg border text-gray-900 placeholder-gray-400 text-sm focus:outline-none focus:ring-2 focus:border-transparent transition ${
+                      confirmPassword && password !== confirmPassword
+                        ? "border-red-400 focus:ring-red-400"
+                        : "border-gray-300 focus:ring-indigo-500"
+                    }`}
+                  />
+                  {confirmPassword && password !== confirmPassword && (
+                    <p className="text-xs text-red-500 mt-1">Şifreler eşleşmiyor</p>
+                  )}
+                </div>
+
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={loading || (Boolean(confirmPassword) && password !== confirmPassword)}
                   className="w-full py-3 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold text-sm transition-colors mt-2"
                 >
                   {loading ? (

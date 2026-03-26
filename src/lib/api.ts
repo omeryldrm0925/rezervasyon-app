@@ -49,21 +49,26 @@ export async function loadAllFromSupabase(): Promise<{
 }> {
   if (!configured || !currentRestaurantId) return { areas: [], reservations: [], overrides: {} };
 
-  const [areasRes, reservationsRes, overridesRes] = await Promise.all([
-    supabase
-      .from("areas")
-      .select("id, name, plan_data, sort_order")
-      .eq("restaurant_id", currentRestaurantId)
-      .order("sort_order"),
+  const areasRes = await supabase
+    .from("areas")
+    .select("id, name, plan_data, sort_order")
+    .eq("restaurant_id", currentRestaurantId)
+    .order("sort_order");
+  if (areasRes.error) throw areasRes.error;
+
+  const areaIds = (areasRes.data ?? []).map((r) => r.id as string);
+
+  const [reservationsRes, overridesRes] = await Promise.all([
     supabase.from("reservations").select("*").eq("restaurant_id", currentRestaurantId),
-    supabase.from("layout_overrides").select("area_id, date_iso, override_data")
+    areaIds.length > 0
+      ? supabase.from("layout_overrides").select("area_id, date_iso, override_data").in("area_id", areaIds)
+      : Promise.resolve({ data: [], error: null })
   ]);
 
-  if (areasRes.error) throw areasRes.error;
   if (reservationsRes.error) throw reservationsRes.error;
   if (overridesRes.error) throw overridesRes.error;
 
-  const areaIds = new Set((areasRes.data ?? []).map((r) => r.id as string));
+  const areaIdSet = new Set(areaIds);
 
   const areas: Area[] = (areasRes.data ?? []).map((row) => ({
     id: row.id as string,
@@ -90,7 +95,7 @@ export async function loadAllFromSupabase(): Promise<{
   const overrides: OverridesByDate = {};
   for (const row of overridesRes.data ?? []) {
     const areaId = row.area_id as string;
-    if (!areaIds.has(areaId)) continue; // Sadece bu restorana ait override'lar
+    if (!areaIdSet.has(areaId)) continue; // Sadece bu restorana ait override'lar
     const dateISO = row.date_iso as string;
     if (!overrides[dateISO]) overrides[dateISO] = {};
     overrides[dateISO][areaId] = row.override_data as LayoutOverride;

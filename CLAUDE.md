@@ -20,6 +20,13 @@ Rezerve — restoran rezervasyon SaaS platformu. Masa planı editörü + rezerva
 - loadAllFromSupabase: REPLACE, append değil
 - Proje sahibi yazılımcı değil, sade açıkla
 
+## ⚠️ Kritik Bilinen Sorunlar
+- **RLS KAPALI** — Supabase'de Row Level Security henüz açılmadı
+- **Multi-tenant veri sızıntısı riski** — `loadAllFromSupabase` layout_overrides'ı tüm restoranlar için çekiyor; `area_id` filtresi eksik (`api.ts:59`)
+- **`syncOverrides`'da `restaurant_id` yok** — `layout_overrides` tablosu `restaurant_id` kaydetmiyor (`api.ts:135`)
+- **`resolveInteractionMode` hatalı** — her zaman "idle" döner, `selectedObject` kontrol etmiyor (`useRestaurantStore:235`)
+- Yeni özellik eklemeden önce `docs/CURRENT-TASK.md` oku — FAZA 1 altyapısı tamamlanmadan ölçeklenemez
+
 ## Detaylı Dokümantasyon
 - `docs/DB.md` → Veritabanı şeması, tablo yapıları, tipler
 - `docs/UI.md` → Component yapısı, layout, stil kuralları

@@ -603,6 +603,16 @@ body {
 .table-token--bar   { border-radius: 999px; }
 .table-token--booth { border-radius: 12px 12px 6px 6px; }
 
+/* Yuvarlak şekillerde shadow da yuvarlak görünsün (simetrik, offset yok) */
+.table-token--round,
+.table-token--bar {
+  box-shadow: 0 2px 6px rgba(0,0,0,.1), 0 1px 3px rgba(0,0,0,.07);
+}
+.table-token--round:hover,
+.table-token--bar:hover {
+  box-shadow: 0 4px 14px rgba(0,0,0,.14), 0 2px 6px rgba(0,0,0,.08);
+}
+
 /* ── Durum renkleri ────────────────────────────────────────── */
 .table-token--empty    { background: #ffffff; border-color: #e5e7eb; }
 .table-token--reserved { background: #eef2ff; border-color: #a5b4fc; } /* indigo-50 / indigo-300 */
