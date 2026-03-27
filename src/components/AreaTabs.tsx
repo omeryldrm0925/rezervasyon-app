@@ -115,7 +115,7 @@ export function AreaTabs({
     <>
       <div
         ref={scrollContainerRef}
-        className="flex items-center bg-white border-b border-gray-200 px-3 gap-1 overflow-x-auto flex-shrink-0 min-h-0"
+        className="flex items-center bg-transparent border-b border-[#2a2a2a] px-3 gap-1 overflow-x-auto flex-shrink-0 min-h-0"
         style={{ scrollbarWidth: "none" }}
       >
         {/* Salon tab'ları */}
@@ -131,9 +131,12 @@ export function AreaTabs({
               onClick={() => !isEditing && onSelectArea(area.id)}
               className={`relative my-1.5 flex-shrink-0 group flex items-center gap-1 cursor-pointer select-none rounded-full transition-all duration-200
                 ${isActive
-                  ? "bg-indigo-600 text-white px-5 py-2 font-semibold shadow-sm"
-                  : "bg-transparent text-gray-500 px-5 py-2 hover:bg-gray-100"
+                  ? "px-5 py-2 font-semibold shadow-sm"
+                  : "bg-transparent px-5 py-2"
                 }`}
+              style={isActive ? { background: '#d6ff3f', color: '#0d0d0d' } : { color: '#8d96a0' }}
+              onMouseEnter={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = 'rgba(245,245,240,0.08)'; }}
+              onMouseLeave={e => { if (!isActive) (e.currentTarget as HTMLElement).style.background = ''; }}
             >
               {isEditing ? (
                 <input

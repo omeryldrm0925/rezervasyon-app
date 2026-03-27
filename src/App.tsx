@@ -802,7 +802,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
   })();
 
   return (
-    <div className="app-shell">
+    <div className="app-shell" style={{ background: '#0d0d0d' }}>
       {/* TopBar: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
       <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
         <TopBar
@@ -823,8 +823,8 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
       {/* Restoran adı + AreaTabs: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
       <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
         {restaurantName && (
-          <div className="px-4 pt-2 pb-0 bg-white">
-            <span className="text-xs font-semibold text-indigo-600 tracking-wide">{restaurantName.toLocaleUpperCase('tr-TR')}</span>
+          <div className="px-4 pt-2 pb-0 bg-transparent">
+            <span className="text-xs font-semibold tracking-wide" style={{ color: '#d6ff3f' }}>{restaurantName.toLocaleUpperCase('tr-TR')}</span>
           </div>
         )}
         <AreaTabs
@@ -857,41 +857,43 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
 
         {/* Canvas kolonu: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
         <div
-          style={{ flexDirection: "column", minWidth: 0, minHeight: 0 }}
+          style={{ flexDirection: "column", minWidth: 0, minHeight: 0, paddingBottom: 12 }}
           className={`flex-1 min-w-0 overflow-hidden ${mobileTab !== "plan" ? "hidden md:flex" : "flex"}`}
         >
 
           {/* Summary bar */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-white border-b border-gray-200">
-            <span className="bg-gray-800 text-white rounded-full px-3 py-1 text-sm font-medium">{summaryDateLabel}</span>
-            <span className="bg-indigo-100 text-indigo-700 rounded-full px-3 py-1 text-sm font-medium">{activeForDay.length} rezervasyon</span>
+          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-transparent">
+            <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(245,245,240,.15)', color: '#f5f5f0' }}>{summaryDateLabel}</span>
+            <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(214,255,63,.15)', color: '#d6ff3f' }}>{activeForDay.length} rezervasyon</span>
             {summaryGuestCount > 0 && (
-              <span className="bg-emerald-100 text-emerald-700 rounded-full px-3 py-1 text-sm font-medium">{summaryGuestCount} misafir</span>
+              <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(245,245,240,.1)', color: '#f5f5f0' }}>{summaryGuestCount} misafir</span>
             )}
           </div>
 
           {/* Mode info bar */}
           {state.targetMode === "default" ? (
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-amber-50 border-b border-amber-200 text-amber-800 text-xs">
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 text-xs" style={{ background: 'rgba(255,200,0,.12)', color: '#fbbf24' }}>
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               <span className="flex-1">Şablon düzenliyorsunuz — bu değişiklikler tüm günleri etkiler.</span>
               <button
-                className="flex-shrink-0 px-2.5 py-1 rounded-md bg-amber-100 hover:bg-amber-200 text-amber-800 font-medium transition-colors text-xs"
+                className="flex-shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors text-xs"
+                style={{ background: 'rgba(255,200,0,.18)', color: '#fbbf24' }}
                 onClick={() => actions.setTargetMode("day")}
               >
                 Günlük Plana Dön
               </button>
             </div>
           ) : dateHasOverride ? (
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-indigo-50 border-b border-indigo-200 text-indigo-800 text-xs">
+            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 text-xs" style={{ background: 'rgba(214,255,63,.1)', color: '#d6ff3f' }}>
               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
               </svg>
               <span className="flex-1">{summaryDateLabel} için özel düzenleme aktif.</span>
               <button
-                className="flex-shrink-0 px-2.5 py-1 rounded-md bg-indigo-100 hover:bg-indigo-200 text-indigo-800 font-medium transition-colors text-xs"
+                className="flex-shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors text-xs"
+                style={{ background: 'rgba(214,255,63,.18)', color: '#d6ff3f' }}
                 onClick={() => {
                   if (!window.confirm("Bu güne özel düzenlemeyi sıfırlamak istediğine emin misin? Gün, varsayılan plana dönecek.")) return;
                   actions.resetDailyOverride(state.activeDateISO, activeArea.id);
@@ -1005,8 +1007,10 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
         </div>
 
         {/* Masaüstü sidebar: sadece masaüstünde görünür */}
-        <div className="hidden md:contents">
+        <div className="hidden md:flex" style={{ padding: '0 12px 12px 0', flexShrink: 0 }}>
+        <div style={{ background: '#f5f5f0', borderRadius: 24, boxShadow: '0 24px 56px rgba(0,0,0,.55), 0 8px 18px rgba(0,0,0,.30)', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: 320, minWidth: 320 }}>
           <ReservationSidebar
+            className="flex-1 flex flex-col overflow-hidden"
             reservations={reservationsAllAreas}
             tables={tables}
             mergedGroupMap={mergedGroupMap}
@@ -1032,11 +1036,13 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             }}
           />
         </div>
+        </div>
 
         {/* Mobil: Rezervasyonlar sekmesi */}
         {mobileTab === "reservations" && (
+          <div className="flex-1 flex flex-col overflow-hidden md:hidden" style={{ background: '#f5f5f0' }}>
           <ReservationSidebar
-            className="flex-1 flex flex-col overflow-hidden bg-white md:hidden"
+            className="flex-1 flex flex-col overflow-hidden"
             reservations={reservationsAllAreas}
             tables={tables}
             mergedGroupMap={mergedGroupMap}
@@ -1062,6 +1068,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
               setMobileTab("plan");
             }}
           />
+          </div>
         )}
 
         {/* Mobil: Ayarlar sekmesi */}
@@ -1546,7 +1553,8 @@ function TablePopup({
 
         <div className="flex gap-2 pt-0.5">
           <button type="submit"
-            className="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+            className="flex-1 py-1.5 rounded-lg text-sm font-semibold transition-colors"
+            style={{ background: '#d6ff3f', color: '#0d0d0d' }}
           >{isEdit ? "Güncelle" : "Kaydet"}</button>
           <button type="button" onClick={onClose}
             className="flex-1 py-1.5 rounded-lg bg-gray-100 hover:bg-gray-200 text-gray-600 text-sm font-medium transition-colors"

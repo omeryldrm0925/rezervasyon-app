@@ -63,10 +63,10 @@ const statusConfig: Record<
   Reservation["status"],
   { label: string; bg: string; text: string }
 > = {
-  reserved: { label: "Rezerve", bg: "bg-indigo-100", text: "text-indigo-700" },
-  arrived:  { label: "Geldi",   bg: "bg-green-100",  text: "text-green-700"  },
-  cancelled:{ label: "İptal",   bg: "bg-red-100",    text: "text-red-600"    },
-  no_show:  { label: "Gelmedi", bg: "bg-gray-100",   text: "text-gray-500"   },
+  reserved: { label: "Rezerve", bg: "bg-[rgba(214,255,63,0.2)]",  text: "text-[#8aaa00]"    },
+  arrived:  { label: "Geldi",   bg: "bg-green-100",              text: "text-green-700"    },
+  cancelled:{ label: "İptal",   bg: "bg-red-100",                text: "text-red-600"      },
+  no_show:  { label: "Gelmedi", bg: "bg-gray-100",               text: "text-gray-500"     },
 };
 
 function formatDateHeader(dateISO: string): string {
@@ -242,7 +242,7 @@ export function ReservationSidebar({
       <div className="px-4 pt-4 pb-3 border-b border-gray-100 flex-shrink-0">
         <div className="flex items-center justify-between mb-0.5">
           <h2 className="text-sm font-semibold text-gray-900">Rezervasyonlar</h2>
-          <span className="inline-flex items-center justify-center bg-indigo-100 text-indigo-700 text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5">
+          <span className="inline-flex items-center justify-center text-xs font-bold rounded-full h-5 min-w-[20px] px-1.5" style={{ background: 'rgba(214,255,63,0.2)', color: '#8aaa00' }}>
             {activeCount}
           </span>
         </div>
@@ -358,7 +358,8 @@ export function ReservationSidebar({
                   <button
                     key={deg} type="button"
                     onClick={() => setTableEditorDraft((d) => d && { ...d, rotation: deg })}
-                    className={`flex-1 py-1 text-xs font-semibold rounded-lg border transition-colors ${tableEditorDraft.rotation === deg ? "bg-indigo-600 text-white border-indigo-600" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+                    className={`flex-1 py-1 text-xs font-semibold rounded-lg border transition-colors ${tableEditorDraft.rotation === deg ? "border-[#c8f032]" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}
+                    style={tableEditorDraft.rotation === deg ? { background: '#d6ff3f', color: '#0d0d0d' } : {}}
                   >
                     {deg}°
                   </button>
@@ -388,7 +389,8 @@ export function ReservationSidebar({
                   tableEditor.onClose();
                 }}
                 disabled={isDuplicateLabel}
-                className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors"
+                className="w-full py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed text-sm font-semibold transition-colors"
+                style={{ background: '#d6ff3f', color: '#0d0d0d' }}
               >
                 Kaydet
               </button>
@@ -441,7 +443,8 @@ export function ReservationSidebar({
                     if (groupNameDraft !== null) tableEditor.onRenameGroup!(groupNameDraft);
                     tableEditor.onClose();
                   }}
-                  className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition-colors"
+                  className="w-full py-2 rounded-lg text-sm font-semibold transition-colors"
+                  style={{ background: '#d6ff3f', color: '#0d0d0d' }}
                 >
                   Kaydet
                 </button>
@@ -539,7 +542,8 @@ export function ReservationSidebar({
             <button
               type="button"
               onClick={() => handleEditReservation(detailReservation)}
-              className="flex-1 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition-colors"
+              className="flex-1 py-1.5 rounded-lg text-xs font-semibold transition-colors border"
+              style={{ borderColor: '#d6ff3f', color: '#8aaa00', background: 'rgba(214,255,63,0.08)' }}
             >
               Düzenle
             </button>
@@ -564,7 +568,8 @@ export function ReservationSidebar({
           <button
             onClick={() => setSelectorOpen(true)}
             disabled={areas.length === 0}
-            className="w-full py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-semibold transition-colors flex items-center justify-center gap-1.5"
+            className="w-full py-2 rounded-lg disabled:opacity-40 disabled:cursor-not-allowed text-sm font-semibold transition-colors flex items-center justify-center gap-1.5"
+            style={{ background: '#d6ff3f', color: '#0d0d0d' }}
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -699,9 +704,10 @@ export function ReservationSidebar({
                   key={reservation.id}
                   className={`rounded-xl border transition-colors ${
                     isHighlighted
-                      ? "border-indigo-300 bg-indigo-50"
+                      ? "border-[#d6ff3f]"
                       : "border-gray-100 bg-white hover:bg-gray-50"
                   }`}
+                  style={isHighlighted ? { background: 'rgba(214,255,63,0.07)' } : {}}
                 >
                   {/* Main row */}
                   <button
@@ -726,7 +732,7 @@ export function ReservationSidebar({
                         <span className="text-gray-200 text-xs">·</span>
                         <span className="text-xs text-gray-400 truncate max-w-[110px]">
                           {ownerLabel}
-                          {isOtherArea && <span className="text-indigo-400 ml-0.5">↗</span>}
+                          {isOtherArea && <span className="ml-0.5" style={{ color: '#d6ff3f' }}>↗</span>}
                         </span>
                         {warning && (
                           <>
