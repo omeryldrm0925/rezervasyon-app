@@ -35,6 +35,7 @@ interface ReservationSidebarProps {
   onSelectReservation: (reservation: Reservation) => void;
   onDeleteReservation: (reservationId: string) => void;
   onSetStatus: (reservationId: string, status: Reservation["status"]) => void;
+  onReassignOrphan: (reservationId: string, newOwnerId: string) => void;
   onSignOut: () => void;
   /** Dışarıdan override edilecek className (varsayılan: w-80 flex-shrink-0 ...) */
   className?: string;
@@ -95,6 +96,7 @@ export function ReservationSidebar({
   onSelectReservation,
   onDeleteReservation,
   onSetStatus,
+  onReassignOrphan,
   onSignOut,
   className,
   tableEditor,
@@ -106,6 +108,8 @@ export function ReservationSidebar({
   const [detailReservation, setDetailReservation] = useState<Reservation | null>(null);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectorAreaId, setSelectorAreaId] = useState<string>(activeAreaId ?? "");
+  const [orphanReassignId, setOrphanReassignId] = useState<string | null>(null);
+  const [orphanNewTableId, setOrphanNewTableId] = useState<string>("");
 
   // ── Table editor draft state ─────────────────────────────────────────────
   const [tableEditorDraft, setTableEditorDraft] = useState<{
@@ -217,6 +221,12 @@ export function ReservationSidebar({
   }
 
   function handleEditReservation(reservation: Reservation) {
+    const isOrphan = reservation.ownerType === "table" && !tables.some((t) => t.id === reservation.ownerId);
+    if (isOrphan) {
+      setOrphanReassignId(reservation.id);
+      setOrphanNewTableId("");
+      return;
+    }
     if (reservation.areaId !== activeAreaId) {
       onSetActiveArea(reservation.areaId);
     }
@@ -485,6 +495,46 @@ export function ReservationSidebar({
               <p className="text-xs text-gray-400 italic leading-relaxed">"{detailReservation.notes}"</p>
             )}
           </div>
+          {/* Orphan reassign form */}
+          {orphanReassignId === detailReservation.id && (
+            <div className="mb-3 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-xs text-red-600 font-medium mb-2">Atanmış masa silinmiş. Yeni masa seç:</p>
+              <select
+                className="w-full px-2.5 py-1.5 text-sm rounded-lg border border-gray-300 bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-2"
+                value={orphanNewTableId}
+                onChange={(e) => setOrphanNewTableId(e.target.value)}
+              >
+                <option value="">— Masa seç —</option>
+                {tables.filter((t) => !t.blocked).map((t) => (
+                  <option key={t.id} value={t.id}>{t.label} ({t.capacity} kişi)</option>
+                ))}
+              </select>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  disabled={!orphanNewTableId}
+                  onClick={() => {
+                    if (!orphanNewTableId) return;
+                    onReassignOrphan(detailReservation.id, orphanNewTableId);
+                    setOrphanReassignId(null);
+                    setOrphanNewTableId("");
+                    setDetailReservation(null);
+                  }}
+                  className="flex-1 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs font-semibold transition-colors"
+                >
+                  Kaydet
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setOrphanReassignId(null); setOrphanNewTableId(""); }}
+                  className="flex-1 py-1.5 rounded-lg border border-gray-200 text-gray-600 text-xs font-medium hover:bg-gray-50 transition-colors"
+                >
+                  İptal
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="flex gap-2">
             <button
               type="button"
@@ -642,6 +692,7 @@ export function ReservationSidebar({
               const warning = warningByReservation[reservation.id];
               const ownerLabel = getOwnerLabel(reservation);
               const isOtherArea = Boolean(activeAreaId && reservation.areaId !== activeAreaId);
+              const isOrphan = reservation.ownerType === "table" && !tables.some((t) => t.id === reservation.ownerId);
 
               return (
                 <div
@@ -681,6 +732,12 @@ export function ReservationSidebar({
                           <>
                             <span className="text-gray-200 text-xs">·</span>
                             <span className="text-xs text-amber-500 font-medium">⚠ {warning}</span>
+                          </>
+                        )}
+                        {isOrphan && (
+                          <>
+                            <span className="text-gray-200 text-xs">·</span>
+                            <span className="text-xs text-red-500 font-medium">⚠ Atanmış masa silinmiş</span>
                           </>
                         )}
                       </div>

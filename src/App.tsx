@@ -777,6 +777,12 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
     if (!reservationId) actions.clearSelection();
   };
 
+  const handleOrphanReassign = (reservationId: string, newOwnerId: string) => {
+    const reservation = state.reservations.find((r) => r.id === reservationId);
+    if (!reservation) return;
+    actions.upsertReservation({ ...reservation, ownerId: newOwnerId, ownerType: "table", tableIds: [newOwnerId] });
+  };
+
   // ── Summary bar stats ──────────────────────────────────────────────────────
   const activeForDay = reservationsAllAreas.filter(
     (r) => r.status !== "cancelled" && r.status !== "no_show"
@@ -1015,6 +1021,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             onSelectReservation={handleSelectReservation}
             onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+            onReassignOrphan={handleOrphanReassign}
             onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
             areas={state.areas}
@@ -1044,6 +1051,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             onSelectReservation={handleSelectReservation}
             onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
+            onReassignOrphan={handleOrphanReassign}
             onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
             areas={state.areas}
@@ -1286,7 +1294,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
               <button
                 className="py-2.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold transition-colors"
                 onClick={() => {
-                  actions.deleteTable(pendingTableDelete.areaId, pendingTableDelete.tableId, state.targetMode);
+                  actions.deleteTable(pendingTableDelete.areaId, pendingTableDelete.tableId, state.targetMode, true);
                   setPendingTableDelete(null);
                 }}
               >

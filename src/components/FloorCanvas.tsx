@@ -17,20 +17,22 @@ function FixtureContent({ kind, label }: { kind: FixtureKind; label?: string }) 
   switch (kind) {
     case "door":
       return (
-        <svg viewBox="0 0 32 32" width="28" height="28" aria-hidden="true" style={{ width: "100%", height: "80%" }}>
-          {/* vertical wall line at hinge */}
-          <line x1="5" y1="5" x2="5" y2="27" stroke="#92400e" strokeWidth="2.5" strokeLinecap="round" />
-          {/* door panel */}
-          <line x1="5" y1="5" x2="25" y2="5" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
-          {/* quarter-circle swing arc: hinge at (5,5), radius 20 */}
-          <path d="M25 5 A20 20 0 0 1 5 25" fill="none" stroke="#d97706" strokeWidth="1.5" strokeLinecap="round" />
+        <svg viewBox="0 0 32 32" aria-hidden="true" style={{ width: "90%", height: "90%" }}>
+          {/* duvar kenarı — sol dikey çizgi */}
+          <line x1="4" y1="4" x2="4" y2="28" stroke="#92400e" strokeWidth="3" strokeLinecap="round" />
+          {/* kapı kolu — yatay çizgi (kapalı pozisyon) */}
+          <line x1="4" y1="4" x2="24" y2="4" stroke="#b45309" strokeWidth="2" strokeLinecap="round" />
+          {/* açılma yayı — çeyrek daire, menteşe (4,4), yarıçap 20 */}
+          <path d="M24 4 A20 20 0 0 1 4 24" fill="none" stroke="#b45309" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="3 2" />
         </svg>
       );
     case "tree":
       return (
-        <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true">
-          <circle cx="12" cy="10" r="7" fill="#34d399" />
-          <rect x="10.5" y="17" width="3" height="4" rx="1" fill="#78350f" />
+        <svg viewBox="0 0 24 24" aria-hidden="true" style={{ width: "80%", height: "80%" }}>
+          {/* üstten bakış — yeşil taç */}
+          <circle cx="12" cy="12" r="10" fill="#059669" />
+          {/* merkez koyu nokta — gövde */}
+          <circle cx="12" cy="12" r="2.5" fill="#064e3b" />
         </svg>
       );
     case "pool":
@@ -164,6 +166,7 @@ type DragState =
       originY: number;
       originWidth: number;
       originHeight: number;
+      originRotation: number;
       resizeHandle?: "n" | "s" | "e" | "w" | "nw" | "ne" | "sw" | "se";
     }
   | {
@@ -498,12 +501,16 @@ export function FloorCanvas({
 
       if (dragState.objectKind === "fixture") {
         if (dragState.type === "move") {
+          const isVertical = dragState.originRotation % 180 !== 0;
+          const effW = isVertical ? dragState.originHeight : dragState.originWidth;
+          const fixtureMinX = (effW - dragState.originWidth) / 2;
+          const fixtureMaxX = Math.max(fixtureMinX, stageSize.width - (dragState.originWidth + effW) / 2);
           const guideTargets = buildGuideTargetsForMove(dragState, occupiedFrames, renderedGroups);
           const next = resolveMagneticMove(
             dragState.originX + dx,
             dragState.originY + dy,
             { width: dragState.originWidth, height: dragState.originHeight },
-            { maxX, maxY },
+            { minX: fixtureMinX, maxX: fixtureMaxX, maxY },
             guideTargets
           );
           onUpdateFixture(dragState.objectId, { x: next.x, y: next.y });
@@ -792,7 +799,8 @@ export function FloorCanvas({
                             originX: current.x,
                             originY: current.y,
                             originWidth: current.width,
-                            originHeight: current.height
+                            originHeight: current.height,
+                            originRotation: current.rotation ?? 0
                           });
                         }
                       : undefined
@@ -813,7 +821,7 @@ export function FloorCanvas({
                       >
                         ×
                       </button>
-                      {/* Rotate button — top-center outside, counter-rotated so always upright */}
+                      {/* Rotate button — left-middle outside, counter-rotated so always upright */}
                       <button
                         className="fixture-token__rotate-btn"
                         title="90° döndür"
@@ -822,7 +830,7 @@ export function FloorCanvas({
                           onUpdateFixture(fixture.id, { rotation: (fixture.rotation + 90) % 360 });
                         }}
                         onPointerDown={(e) => e.stopPropagation()}
-                        style={{ transform: `translateX(-50%) rotate(${-fixture.rotation}deg)` }}
+                        style={{ transform: `translateY(-50%) rotate(${-fixture.rotation}deg)` }}
                       >
                         ↻
                       </button>
@@ -847,7 +855,8 @@ export function FloorCanvas({
                               originX: fixture.x,
                               originY: fixture.y,
                               originWidth: fixture.width,
-                              originHeight: fixture.height
+                              originHeight: fixture.height,
+                              originRotation: fixture.rotation ?? 0
                             });
                           }}
                         />
@@ -1201,10 +1210,10 @@ function resolveMagneticMove(
   desiredX: number,
   desiredY: number,
   size: { width: number; height: number },
-  bounds: { maxX: number; maxY: number },
+  bounds: { minX?: number; maxX: number; maxY: number },
   targets: Frame[]
 ): { x: number; y: number; guides: GuideState } {
-  let x = clamp(snap(desiredX), -GRID, bounds.maxX);
+  let x = clamp(snap(desiredX), bounds.minX ?? 0, bounds.maxX);
   let y = clamp(snap(desiredY), -GRID, bounds.maxY);
   let guideX: number | null = null;
   let guideY: number | null = null;
@@ -1253,7 +1262,7 @@ function resolveMagneticMove(
   });
 
   if (hasBestX) {
-    x = clamp(Math.round(bestXPosition), -GRID, bounds.maxX);
+    x = clamp(Math.round(bestXPosition), bounds.minX ?? 0, bounds.maxX);
     guideX = Math.round(bestXGuide);
   }
   if (hasBestY) {

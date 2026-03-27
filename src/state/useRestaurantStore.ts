@@ -43,7 +43,7 @@ type Action =
   | { type: "RENAME_AREA"; areaId: string; name: string }
   | { type: "ADD_TABLE"; areaId: string; targetMode: TargetMode; shape: TableShape; x: number; y: number }
   | { type: "UPDATE_TABLE"; areaId: string; tableId: string; targetMode: TargetMode; patch: TablePatch }
-  | { type: "DELETE_TABLE"; areaId: string; tableId: string; targetMode: TargetMode }
+  | { type: "DELETE_TABLE"; areaId: string; tableId: string; targetMode: TargetMode; keepReservations?: boolean }
   | { type: "ADD_FIXTURE"; areaId: string; targetMode: TargetMode; fixtureKind: FixtureKind; x: number; y: number }
   | { type: "CLONE_FIXTURE"; areaId: string; targetMode: TargetMode; source: Omit<Fixture, "id">; x: number; y: number }
   | { type: "UPDATE_FIXTURE"; areaId: string; fixtureId: string; targetMode: TargetMode; patch: FixturePatch }
@@ -260,7 +260,7 @@ function resolveInteractionMode(
   mergeMode: MergeModeState
 ): StoreState["interactionMode"] {
   if (mergeMode.active) return "merging";
-  return selectedObject ? "idle" : "idle";
+  return selectedObject ? "editingObject" : "idle";
 }
 
 function getAreaTables(state: StoreState, areaId: string, overrideForDate?: LayoutOverride | null): Table[] {
@@ -466,13 +466,15 @@ function reducer(state: StoreState, action: Action): StoreState {
         overrides = nextOverrides;
       }
 
-      const reservations = scrubReservationsForTable(
-        state.reservations,
-        action.tableId,
-        (reservation) =>
-          reservation.areaId === action.areaId &&
-          (action.targetMode === "default" || reservation.dateISO === state.activeDateISO)
-      );
+      const reservations = action.keepReservations
+        ? state.reservations
+        : scrubReservationsForTable(
+            state.reservations,
+            action.tableId,
+            (reservation) =>
+              reservation.areaId === action.areaId &&
+              (action.targetMode === "default" || reservation.dateISO === state.activeDateISO)
+          );
 
       const selectedObject =
         state.selectedObject?.kind === "table" && state.selectedObject.id === action.tableId
@@ -1008,8 +1010,8 @@ export function useRestaurantStore() {
         dispatchWithHistory({ type: "ADD_TABLE", areaId, targetMode, shape, x, y }),
       updateTable: (areaId: string, tableId: string, targetMode: TargetMode, patch: TablePatch) =>
         dispatchWithHistory({ type: "UPDATE_TABLE", areaId, tableId, targetMode, patch }),
-      deleteTable: (areaId: string, tableId: string, targetMode: TargetMode) =>
-        dispatchWithHistory({ type: "DELETE_TABLE", areaId, tableId, targetMode }),
+      deleteTable: (areaId: string, tableId: string, targetMode: TargetMode, keepReservations?: boolean) =>
+        dispatchWithHistory({ type: "DELETE_TABLE", areaId, tableId, targetMode, keepReservations }),
       addFixture: (areaId: string, targetMode: TargetMode, fixtureKind: FixtureKind, x: number, y: number) =>
         dispatchWithHistory({ type: "ADD_FIXTURE", areaId, targetMode, fixtureKind, x, y }),
       cloneFixture: (areaId: string, targetMode: TargetMode, source: Omit<Fixture, "id">, x: number, y: number) =>

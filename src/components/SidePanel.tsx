@@ -63,9 +63,9 @@ function FixtureIcon({ kind }: { kind: FixtureKind }) {
     case "door":
       return (
         <svg viewBox="0 0 36 36" width="32" height="32" aria-hidden="true">
-          <line x1="6" y1="6" x2="6" y2="30" stroke="#92400e" strokeWidth="2.5" strokeLinecap="round" />
-          <line x1="6" y1="6" x2="26" y2="6" stroke="#d97706" strokeWidth="2" strokeLinecap="round" />
-          <path d="M26 6 A20 20 0 0 1 6 26" fill="none" stroke="#d97706" strokeWidth="1.5" strokeLinecap="round" />
+          <line x1="5" y1="5" x2="5" y2="31" stroke="#92400e" strokeWidth="3" strokeLinecap="round" />
+          <line x1="5" y1="5" x2="27" y2="5" stroke="#b45309" strokeWidth="2" strokeLinecap="round" />
+          <path d="M27 5 A22 22 0 0 1 5 27" fill="none" stroke="#b45309" strokeWidth="1.5" strokeLinecap="round" strokeDasharray="3 2" />
         </svg>
       );
     case "window":
@@ -85,8 +85,8 @@ function FixtureIcon({ kind }: { kind: FixtureKind }) {
     case "tree":
       return (
         <svg viewBox="0 0 36 36" width="32" height="32" aria-hidden="true">
-          <circle cx="18" cy="15" r="11" fill="#34d399" />
-          <rect x="16" y="25" width="4" height="7" rx="1" fill="#78350f" />
+          <circle cx="18" cy="18" r="14" fill="#059669" />
+          <circle cx="18" cy="18" r="3.5" fill="#064e3b" />
         </svg>
       );
     case "pool":

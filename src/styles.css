@@ -460,37 +460,37 @@ body {
   cursor: pointer;
   transition: box-shadow 100ms;
 }
-.fixture-token--door        { background: linear-gradient(135deg, #dbeafe, #bfdbfe); border-color: #93c5fd; color: #1e3a8a; }
+.fixture-token--door        { background: #fef3c7; border-color: #d97706; color: #92400e; }
 .fixture-token--window      { background: linear-gradient(135deg, #d1fae5, #a7f3d0); border-color: #6ee7b7; color: #065f46; }
 .fixture-token--wall        { background: #9ca3af; border-color: #6b7280; color: #f9fafb; border-radius: 3px; }
-.fixture-token--tree        { background: #6ee7b7; border-color: #059669; color: #064e3b; border-radius: 999px; }
+.fixture-token--tree        { background: #059669; border-color: #047857; color: #ecfdf5; border-radius: 999px; }
 .fixture-token--pool        { background: linear-gradient(135deg, #bae6fd, #7dd3fc); border-color: #38bdf8; color: #0c4a6e; border-radius: 12px; }
 .fixture-token--restroom    { background: #e5e7eb; border-color: #9ca3af; color: #374151; border-radius: 6px; }
 .fixture-token--cashier     { background: #d1d5db; border-color: #6b7280; color: #1f2937; border-radius: 5px; }
 .fixture-token--bar_counter { background: linear-gradient(90deg, #fde68a, #fcd34d); border-color: #d97706; color: #78350f; border-radius: 4px; }
 .fixture-token--stairs      { background: #e5e7eb; border-color: #9ca3af; color: #374151; border-radius: 4px; }
 .fixture-token--pillar      { background: #d1d5db; border-color: #6b7280; color: #374151; border-radius: 4px; }
-.fixture-token.is-selected { box-shadow: 0 0 0 2px var(--accent), var(--sh-sm); }
+.fixture-token.is-selected { outline: 2px solid #818cf8; outline-offset: 1px; }
 
-/* Rotate button — positioned above the fixture, counter-rotated via inline style */
+/* Rotate button — left-middle outside, counter-rotated via inline style */
 .fixture-token__rotate-btn {
   position: absolute;
-  top: -26px;
-  left: 50%;
-  /* inline style provides translateX(-50%) + counter-rotation */
-  width: 20px; height: 20px;
+  left: -48px;
+  top: 50%;
+  /* inline style provides translateY(-50%) + counter-rotation */
+  width: 28px; height: 28px;
   border-radius: 999px;
-  background: #6366f1;
-  border: 2px solid #fff;
-  color: #fff;
-  font-size: 13px; line-height: 1;
+  background: #fff;
+  border: 2px solid #818cf8;
+  color: #6366f1;
+  font-size: 15px; line-height: 1;
   display: flex; align-items: center; justify-content: center;
   cursor: pointer;
-  box-shadow: 0 1px 4px rgba(99,102,241,.4);
+  box-shadow: 0 2px 8px rgba(0,0,0,.15), 0 1px 3px rgba(0,0,0,.1);
   z-index: 10;
-  transition: background .12s;
+  transition: background .12s, border-color .12s;
 }
-.fixture-token__rotate-btn:hover { background: #4f46e5; }
+.fixture-token__rotate-btn:hover { background: #eef2ff; border-color: #6366f1; }
 
 .fixture-token__delete {
   position: absolute;
@@ -509,24 +509,43 @@ body {
 }
 .fixture-token__delete:hover { transform: scale(1.15); }
 
+/* Resize handles — base */
 .fixture-token__resize {
   position: absolute;
-  width: 10px; height: 10px;
-  border: 2px solid #6366f1;
-  border-radius: 3px;
   background: #fff;
-  box-shadow: 0 1px 3px rgba(0,0,0,.18);
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
   z-index: 10;
 }
-/* 8 resize handles — corners + edges */
-.fixture-token__resize--se { right: -6px; bottom: -6px; cursor: nwse-resize; }
-.fixture-token__resize--sw { left: -6px;  bottom: -6px; cursor: nesw-resize; }
-.fixture-token__resize--ne { right: -6px; top: -6px;    cursor: nesw-resize; }
-.fixture-token__resize--nw { left: -6px;  top: -6px;    cursor: nwse-resize; }
-.fixture-token__resize--n  { left: 50%; top: -6px;    transform: translateX(-50%); cursor: ns-resize; }
-.fixture-token__resize--s  { left: 50%; bottom: -6px; transform: translateX(-50%); cursor: ns-resize; }
-.fixture-token__resize--e  { right: -6px; top: 50%; transform: translateY(-50%); cursor: ew-resize; }
-.fixture-token__resize--w  { left: -6px;  top: 50%; transform: translateY(-50%); cursor: ew-resize; }
+/* Corner handles — 12px circles */
+.fixture-token__resize--nw,
+.fixture-token__resize--ne,
+.fixture-token__resize--sw,
+.fixture-token__resize--se {
+  width: 12px; height: 12px;
+  border-radius: 999px;
+  border: 2px solid #6366f1;
+}
+.fixture-token__resize--se { right: -6px;  bottom: -6px; cursor: nwse-resize; }
+.fixture-token__resize--sw { left: -6px;   bottom: -6px; cursor: nesw-resize; }
+.fixture-token__resize--ne { right: -6px;  top: -6px;    cursor: nesw-resize; }
+.fixture-token__resize--nw { left: -6px;   top: -6px;    cursor: nwse-resize; }
+/* Edge handles — thin rectangles */
+.fixture-token__resize--n,
+.fixture-token__resize--s {
+  width: 8px; height: 4px;
+  border-radius: 2px;
+  border: 1px solid #818cf8;
+}
+.fixture-token__resize--e,
+.fixture-token__resize--w {
+  width: 4px; height: 8px;
+  border-radius: 2px;
+  border: 1px solid #818cf8;
+}
+.fixture-token__resize--n  { left: 50%; top: -3px;    transform: translateX(-50%); cursor: ns-resize; }
+.fixture-token__resize--s  { left: 50%; bottom: -3px; transform: translateX(-50%); cursor: ns-resize; }
+.fixture-token__resize--e  { right: -3px; top: 50%;   transform: translateY(-50%); cursor: ew-resize; }
+.fixture-token__resize--w  { left: -3px;  top: 50%;   transform: translateY(-50%); cursor: ew-resize; }
 
 /* ─── Merged group tokens ─────────────────────────────────── */
 .merged-token {
