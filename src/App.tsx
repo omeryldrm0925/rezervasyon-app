@@ -5,6 +5,7 @@ import { FloorCanvas } from "./components/FloorCanvas";
 import { SidePanel, tableItems, fixtureItems, ShapeIcon, FixtureIcon } from "./components/SidePanel";
 import { ReservationSidebar, type ReservationFormData } from "./components/ReservationSidebar";
 import { TopBar } from "./components/TopBar";
+import { DateStrip } from "./components/DateStrip";
 import { useRestaurantStore } from "./state/useRestaurantStore";
 import { useAuth } from "./hooks/useAuth";
 import { LoginPage } from "./features/auth/LoginPage";
@@ -179,6 +180,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
   });
 
   const activeArea = getAreaById(state.areas, state.activeAreaId);
+  const dateHasOverride = Boolean(state.overrides[state.activeDateISO]?.[activeArea?.id ?? ""]);
 
   // Bu değişkenler hook'ların bağımlılıklarında kullanılıyor — early return'den önce hesaplanmalı
   const reservationsAllAreas = getReservationsForDate(state.reservations, state.activeDateISO);
@@ -680,10 +682,6 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
     return targets;
   })();
 
-  const dateHasOverride = Boolean(state.overrides[state.activeDateISO]?.[activeArea.id]);
-  const overrideCountForArea = Object.values(state.overrides).filter(
-    (bucket) => bucket[activeArea.id]
-  ).length;
 
   const handleSelectTable = (tableId: string) => {
     if (state.mergeMode.active) {
@@ -802,31 +800,43 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
   })();
 
   return (
-    <div className="app-shell" style={{ background: '#0d0d0d' }}>
+    <div className="app-shell" style={{ background: 'var(--bg)' }}>
       {/* TopBar: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
       <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
         <TopBar
-          selectedDateISO={state.activeDateISO}
-          onDateChange={actions.setDate}
           onToday={() => actions.setDate(toISODate(new Date()))}
-          hasOverride={(dateISO) => Boolean(state.overrides[dateISO]?.[activeArea.id])}
-          dateHasOverride={dateHasOverride}
-          onResetDay={() => actions.resetDailyOverride(state.activeDateISO, activeArea.id)}
           targetMode={state.targetMode}
           onTargetModeChange={actions.setTargetMode}
           layoutUnlocked={state.layoutUnlocked}
           onLayoutUnlockedChange={actions.setLayoutUnlocked}
-          overrideCountForArea={overrideCountForArea}
+          restaurantName={restaurantName}
+          userEmail={userEmail}
+          onSignOut={onSignOut}
+          searchQuery={state.reservationSearchQuery}
+          onSearchChange={actions.setReservationSearchQuery}
         />
       </div>
 
-      {/* Restoran adı + AreaTabs: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
+      {/* Özel düzen sıfırla butonu — sadece o güne özel override varsa ve düzenleme modunda değilken */}
+      {dateHasOverride && !state.layoutUnlocked && (
+        <button
+          onClick={() => {
+            if (!window.confirm("Bu güne özel düzenlemeyi sıfırlamak istediğine emin misin? Gün, varsayılan plana dönecek.")) return;
+            actions.resetDailyOverride(state.activeDateISO, activeArea.id);
+          }}
+          style={{
+            position: "fixed", top: 14, right: 180, zIndex: 50,
+            padding: "8px 16px", borderRadius: 999,
+            background: "rgba(248,113,113,.15)", border: "1px solid rgba(248,113,113,.3)",
+            color: "#f87171", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit",
+          }}
+        >
+          Özel Düzeni Sıfırla
+        </button>
+      )}
+
+      {/* AreaTabs: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
       <div className={`flex-shrink-0 max-w-full overflow-hidden${mobileTab !== "plan" ? " hidden md:block" : ""}`}>
-        {restaurantName && (
-          <div className="px-4 pt-2 pb-0 bg-transparent">
-            <span className="text-xs font-semibold tracking-wide" style={{ color: '#d6ff3f' }}>{restaurantName.toLocaleUpperCase('tr-TR')}</span>
-          </div>
-        )}
         <AreaTabs
           areas={state.areas}
           activeAreaId={activeArea.id}
@@ -841,7 +851,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
       <div style={{ flex: 1, minHeight: 0, overflow: "hidden", width: "100%", maxWidth: "100vw" }} className="flex">
 
         {/* Sol Panel: sadece masaüstünde */}
-        <div className="hidden md:contents">
+        <div className={state.layoutUnlocked ? "hidden md:contents" : "hidden"}>
           <SidePanel
             enabled={state.layoutUnlocked}
             onQuickAddTable={handleQuickAddTable}
@@ -857,54 +867,11 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
 
         {/* Canvas kolonu: masaüstünde her zaman, mobilde sadece Plan sekmesinde */}
         <div
-          style={{ flexDirection: "column", minWidth: 0, minHeight: 0, paddingBottom: 12 }}
+          style={{ flexDirection: "column", minWidth: 0, minHeight: 0, paddingBottom: 0 }}
           className={`flex-1 min-w-0 overflow-hidden ${mobileTab !== "plan" ? "hidden md:flex" : "flex"}`}
         >
 
-          {/* Summary bar */}
-          <div className="flex-shrink-0 flex items-center gap-2 px-4 py-2 bg-transparent">
-            <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(245,245,240,.15)', color: '#f5f5f0' }}>{summaryDateLabel}</span>
-            <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(214,255,63,.15)', color: '#d6ff3f' }}>{activeForDay.length} rezervasyon</span>
-            {summaryGuestCount > 0 && (
-              <span className="rounded-full px-3 py-1 text-sm font-medium" style={{ background: 'rgba(245,245,240,.1)', color: '#f5f5f0' }}>{summaryGuestCount} misafir</span>
-            )}
-          </div>
 
-          {/* Mode info bar */}
-          {state.targetMode === "default" ? (
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 text-xs" style={{ background: 'rgba(255,200,0,.12)', color: '#fbbf24' }}>
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              <span className="flex-1">Şablon düzenliyorsunuz — bu değişiklikler tüm günleri etkiler.</span>
-              <button
-                className="flex-shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors text-xs"
-                style={{ background: 'rgba(255,200,0,.18)', color: '#fbbf24' }}
-                onClick={() => actions.setTargetMode("day")}
-              >
-                Günlük Plana Dön
-              </button>
-            </div>
-          ) : dateHasOverride ? (
-            <div className="flex-shrink-0 flex items-center gap-2 px-4 py-1.5 text-xs" style={{ background: 'rgba(214,255,63,.1)', color: '#d6ff3f' }}>
-              <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-              </svg>
-              <span className="flex-1">{summaryDateLabel} için özel düzenleme aktif.</span>
-              <button
-                className="flex-shrink-0 px-2.5 py-1 rounded-md font-medium transition-colors text-xs"
-                style={{ background: 'rgba(214,255,63,.18)', color: '#d6ff3f' }}
-                onClick={() => {
-                  if (!window.confirm("Bu güne özel düzenlemeyi sıfırlamak istediğine emin misin? Gün, varsayılan plana dönecek.")) return;
-                  actions.resetDailyOverride(state.activeDateISO, activeArea.id);
-                }}
-              >
-                Özel Düzenlemeyi Sıfırla
-              </button>
-            </div>
-          ) : null}
-
-          {/* Canvas */}
           <main className="workspace" data-mode={state.targetMode} style={{ flex: 1, minHeight: 0 }}>
             <FloorCanvas
               tables={tables}
@@ -929,6 +896,7 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
               onClearSelection={() => {
                 if (state.mergeMode.active) return;
                 actions.clearSelection();
+                actions.setReservationSearchQuery("");
               }}
               onAddTable={(shape, x, y) => actions.addTable(activeArea.id, state.targetMode, shape, x, y)}
               onAddFixture={(fixtureKind, x, y) => actions.addFixture(activeArea.id, state.targetMode, fixtureKind, x, y)}
@@ -962,11 +930,11 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
                   >
                     <div className="onboarding-card__icon">
                       <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
-                        <rect x="6" y="10" width="28" height="20" rx="4" fill="#e0e7ff" stroke="#6366f1" strokeWidth="1.5" />
-                        <circle cx="20" cy="4"  r="3" fill="#a5b4fc" />
-                        <circle cx="20" cy="36" r="3" fill="#a5b4fc" />
-                        <circle cx="3"  cy="20" r="3" fill="#a5b4fc" />
-                        <circle cx="37" cy="20" r="3" fill="#a5b4fc" />
+                        <rect x="6" y="10" width="28" height="20" rx="4" fill="rgba(214,255,63,.15)" stroke="#d6ff3f" strokeWidth="1.5" />
+                        <circle cx="20" cy="4"  r="3" fill="rgba(214,255,63,.3)" />
+                        <circle cx="20" cy="36" r="3" fill="rgba(214,255,63,.3)" />
+                        <circle cx="3"  cy="20" r="3" fill="rgba(214,255,63,.3)" />
+                        <circle cx="37" cy="20" r="3" fill="rgba(214,255,63,.3)" />
                       </svg>
                     </div>
                     <h2 className="onboarding-card__title">Restoranınızı tasarlamaya başlayın</h2>
@@ -1004,11 +972,60 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             </FloorCanvas>
           </main>
 
+          {/* Tarih seçici kartı — canvas altında */}
+          {state.targetMode !== "default" && (
+            <div style={{ padding: "0 12px 8px", display: "flex", alignItems: "flex-start" }}>
+              <div style={{
+                background: "#f5f5f0",
+                borderRadius: 16,
+                padding: "8px 12px",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                width: "100%",
+                minWidth: 0,
+              }}>
+                <button
+                  className="btn btn--soft btn--tiny"
+                  style={{ flexShrink: 0, color: '#1a1a1a', background: '#e8e8e3', borderColor: '#d0d0ca' }}
+                  onClick={() => actions.setDate(toISODate(new Date()))}
+                >
+                  Bugün
+                </button>
+                <div style={{ flex: 1, minWidth: 0, display: "flex", overflowX: "auto", scrollbarWidth: "none" }}>
+                  <DateStrip
+                    selectedDateISO={state.activeDateISO}
+                    onDateChange={actions.setDate}
+                    hasOverride={(dateISO) => Boolean(state.overrides[dateISO]?.[activeArea.id])}
+                  />
+                </div>
+                <input
+                  className="input input--date"
+                  type="date"
+                  style={{ background: '#eaeae5', borderColor: '#d0d0ca', color: '#1a1a1a', flexShrink: 0 }}
+                  value={state.activeDateISO}
+                  onChange={(e) => actions.setDate(e.target.value)}
+                />
+                {Boolean(state.overrides[state.activeDateISO]?.[activeArea.id]) && (
+                  <button
+                    className="btn btn--soft btn--tiny"
+                    style={{ flexShrink: 0, color: '#b45309', background: 'rgba(251,191,36,.12)', borderColor: 'rgba(251,191,36,.3)' }}
+                    onClick={() => {
+                      if (!window.confirm("Bu güne özel düzenlemeyi sıfırlamak istediğine emin misin? Gün, varsayılan plana dönecek.")) return;
+                      actions.resetDailyOverride(state.activeDateISO, activeArea.id);
+                    }}
+                  >
+                    Özel Düzeni Sıfırla
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
         </div>
 
         {/* Masaüstü sidebar: sadece masaüstünde görünür */}
-        <div className="hidden md:flex" style={{ padding: '0 12px 12px 0', flexShrink: 0 }}>
-        <div style={{ background: '#f5f5f0', borderRadius: 24, boxShadow: '0 24px 56px rgba(0,0,0,.55), 0 8px 18px rgba(0,0,0,.30)', overflow: 'hidden', display: 'flex', flexDirection: 'column', width: 320, minWidth: 320 }}>
+        <div className="sidebar-float hidden md:flex" style={{ padding: '0 12px 12px 0', overflow: 'hidden', flexDirection: 'column', width: 272, minWidth: 272 }}>
           <ReservationSidebar
             className="flex-1 flex flex-col overflow-hidden"
             reservations={reservationsAllAreas}
@@ -1026,7 +1043,6 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
             onReassignOrphan={handleOrphanReassign}
-            onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
             areas={state.areas}
             onSetActiveArea={actions.setArea}
@@ -1035,7 +1051,14 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
               else actions.selectTable(ownerId);
             }}
           />
-        </div>
+          {/* Summary badges */}
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", padding: "8px 16px 12px", borderTop: "1px solid rgba(0,0,0,.06)" }}>
+            <span style={{ background: "rgba(0,0,0,.05)", color: "#1a1a1a", fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 999 }}>{summaryDateLabel}</span>
+            <span style={{ background: "rgba(214,255,63,.15)", color: "#1a1a1a", fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 999 }}>{activeForDay.length} rez</span>
+            {summaryGuestCount > 0 && (
+              <span style={{ background: "rgba(0,0,0,.05)", color: "#1a1a1a", fontSize: 11, fontWeight: 600, padding: "4px 12px", borderRadius: 999 }}>{summaryGuestCount} misafir</span>
+            )}
+          </div>
         </div>
 
         {/* Mobil: Rezervasyonlar sekmesi */}
@@ -1058,7 +1081,6 @@ function RestaurantApp({ onSignOut, userEmail, restaurantName }: { onSignOut: ()
             onDeleteReservation={(reservationId) => { actions.deleteReservation(reservationId); actions.clearSelection(); }}
             onSetStatus={(reservationId, status) => actions.setReservationStatus(reservationId, status)}
             onReassignOrphan={handleOrphanReassign}
-            onSignOut={onSignOut}
             tableEditor={sidebarTableEditor}
             areas={state.areas}
             onSetActiveArea={actions.setArea}

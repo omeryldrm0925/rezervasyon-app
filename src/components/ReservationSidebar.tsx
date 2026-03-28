@@ -36,7 +36,6 @@ interface ReservationSidebarProps {
   onDeleteReservation: (reservationId: string) => void;
   onSetStatus: (reservationId: string, status: Reservation["status"]) => void;
   onReassignOrphan: (reservationId: string, newOwnerId: string) => void;
-  onSignOut: () => void;
   /** Dışarıdan override edilecek className (varsayılan: w-80 flex-shrink-0 ...) */
   className?: string;
   /** Düzenleme modunda masa/grup seçiliyken gösterilecek editör */
@@ -97,7 +96,6 @@ export function ReservationSidebar({
   onDeleteReservation,
   onSetStatus,
   onReassignOrphan,
-  onSignOut,
   className,
   tableEditor,
   areas,
@@ -811,15 +809,6 @@ export function ReservationSidebar({
         )}
       </div>
 
-      {/* ── Footer ──────────────────────────────────────── */}
-      <div className="px-4 py-3 border-t border-gray-100 flex-shrink-0">
-        <button
-          onClick={onSignOut}
-          className="w-full text-xs text-gray-400 hover:text-gray-600 transition-colors py-1 text-center"
-        >
-          Çıkış Yap
-        </button>
-      </div>
     </aside>
   );
 }

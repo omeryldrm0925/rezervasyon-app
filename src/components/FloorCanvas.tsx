@@ -251,13 +251,16 @@ export function FloorCanvas({
   // drag vs click: true when pointer moved past threshold during an active drag
   const dragMovedRef = useRef(false);
 
-  // Multi-select state
+  // Multi-select state (kept for multi-move compatibility)
   const [multiSelectedIds, setMultiSelectedIds] = useState<Set<string>>(new Set());
-  const [selectionBoxActive, setSelectionBoxActive] = useState(false);
-  const [selectionBoxVisual, setSelectionBoxVisual] = useState<{
-    startX: number; startY: number; currentX: number; currentY: number;
+  // Pan state
+  const panRef = useRef<{
+    startClientX: number;
+    startClientY: number;
+    startScrollLeft: number;
+    startScrollTop: number;
   } | null>(null);
-  const selectionStartRef = useRef<{ x: number; y: number } | null>(null);
+  const [isPanning, setIsPanning] = useState(false);
   const tablesRef = useRef(tables);
   tablesRef.current = tables;
   const zoomRef = useRef(zoom);
@@ -397,37 +400,24 @@ export function FloorCanvas({
     });
   }, [onCanvasViewChange, scrollState.left, scrollState.top, stageSize.height, stageSize.width, viewportSize.height, viewportSize.width, zoom]);
 
-  // Rubber-band multi-select effect
+  // Pan effect
   useEffect(() => {
-    if (!selectionBoxActive) return;
-    const start = selectionStartRef.current;
-    if (!start) return;
-
+    if (!isPanning) return;
     const onMove = (e: PointerEvent) => {
+      const pan = panRef.current;
       const node = viewportRef.current;
-      if (!node) return;
-      const rect = node.getBoundingClientRect();
-      const z = zoomRef.current;
-      const curX = (e.clientX - rect.left + node.scrollLeft) / z;
-      const curY = (e.clientY - rect.top + node.scrollTop) / z;
-      setSelectionBoxVisual({ startX: start.x, startY: start.y, currentX: curX, currentY: curY });
-      const box = {
-        x: Math.min(start.x, curX), y: Math.min(start.y, curY),
-        width: Math.abs(curX - start.x), height: Math.abs(curY - start.y)
-      };
-      if (box.width > 4 || box.height > 4) {
-        const ids = new Set(
-          tablesRef.current
-            .filter((t) => t.x < box.x + box.width && t.x + t.width > box.x && t.y < box.y + box.height && t.y + t.height > box.y)
-            .map((t) => t.id)
-        );
-        setMultiSelectedIds(ids);
-        onMultiSelectChange?.(Array.from(ids));
-      }
+      if (!pan || !node) return;
+      const dx = pan.startClientX - e.clientX;
+      const dy = pan.startClientY - e.clientY;
+      const maxLeft = Math.max(0, node.scrollWidth - node.clientWidth);
+      const maxTop  = Math.max(0, node.scrollHeight - node.clientHeight);
+      node.scrollLeft = clamp(pan.startScrollLeft + dx, 0, maxLeft);
+      node.scrollTop  = clamp(pan.startScrollTop  + dy, 0, maxTop);
+      setScrollState({ left: node.scrollLeft, top: node.scrollTop });
     };
     const onUp = () => {
-      setSelectionBoxActive(false);
-      setSelectionBoxVisual(null);
+      panRef.current = null;
+      setIsPanning(false);
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -435,8 +425,7 @@ export function FloorCanvas({
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectionBoxActive, onMultiSelectChange]);
+  }, [isPanning]);
 
   const toCanvasPoint = (clientX: number, clientY: number) => {
     const node = viewportRef.current;
@@ -697,18 +686,21 @@ export function FloorCanvas({
         >
           <div
             className="canvas-shell__stage"
-            style={{ width: stageSize.width, height: stageSize.height, transform: `scale(${zoom})` }}
+            style={{ width: stageSize.width, height: stageSize.height, transform: `scale(${zoom})`, cursor: isPanning ? "grabbing" : "grab" }}
             onPointerDown={(event) => {
-              // Start rubber-band selection only on direct background click
+              // Start pan only on direct background click
               if (event.target !== event.currentTarget) return;
               if (event.button !== 0) return;
-              const pointer = toCanvasPoint(event.clientX, event.clientY);
-              if (!pointer) return;
               onClearSelection();
-              setMultiSelectedIds(new Set());
-              onMultiSelectChange?.([]);
-              selectionStartRef.current = { x: pointer.x, y: pointer.y };
-              setSelectionBoxActive(true);
+              const node = viewportRef.current;
+              if (!node) return;
+              panRef.current = {
+                startClientX: event.clientX,
+                startClientY: event.clientY,
+                startScrollLeft: node.scrollLeft,
+                startScrollTop: node.scrollTop
+              };
+              setIsPanning(true);
               event.stopPropagation();
             }}
           >
@@ -731,18 +723,6 @@ export function FloorCanvas({
 
             {guides.x !== null ? <div className="canvas-guide canvas-guide--x" style={{ left: guides.x }} /> : null}
             {guides.y !== null ? <div className="canvas-guide canvas-guide--y" style={{ top: guides.y }} /> : null}
-
-            {selectionBoxVisual ? (
-              <div
-                className="selection-rect"
-                style={{
-                  left: Math.min(selectionBoxVisual.startX, selectionBoxVisual.currentX),
-                  top: Math.min(selectionBoxVisual.startY, selectionBoxVisual.currentY),
-                  width: Math.abs(selectionBoxVisual.currentX - selectionBoxVisual.startX),
-                  height: Math.abs(selectionBoxVisual.currentY - selectionBoxVisual.startY)
-                }}
-              />
-            ) : null}
 
             {mergeMode.active ? (
               <div className="merge-banner">
